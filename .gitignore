@@ -1,0 +1,20 @@
+# Compiled Java classes
+*.class
+
+# Build / output directory
+out/
+
+# RentNGo saved data file (created at runtime)
+rentngo-data.txt
+
+# RentNGo saved data (accounts with password hashes, vehicles, bookings, payments)
+data/
+
+# Uploaded profile photos
+images/profiles/
+
+# Compiled tests
+test-out/
+
+# Lock that stops two copies of RentNGo using the same data folder
+.rentngo.lock

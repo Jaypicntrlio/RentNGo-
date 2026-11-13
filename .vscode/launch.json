@@ -1,0 +1,13 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "java",
+            "name": "RentNGo",
+            "request": "launch",
+            "mainClass": "app.RentNGo",
+            "vmArgs": "--enable-native-access=ALL-UNNAMED",
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}

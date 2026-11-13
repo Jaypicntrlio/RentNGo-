@@ -2,6 +2,47 @@
 
 A Java Swing desktop application for managing vehicle rentals.
 
+## How to Run
+
+**You need:** a JDK (Java Development Kit), version 17 or newer, not just a JRE. Check it in a
+terminal: `javac -version` should print a version number. If it says "not found", install a JDK
+(for example [Eclipse Temurin](https://adoptium.net/)) and open a new terminal.
+
+**1. Get the code**
+
+```bash
+git clone https://github.com/Jaypicntrlio/RentNGo-.git
+cd RentNGo-
+```
+
+Or on GitHub click **Code → Download ZIP** and unzip it.
+
+**2. Start the app** (pick one)
+
+- **Windows, easiest:** double-click `run.bat`. It compiles everything, then opens the login screen.
+  From a terminal in the project folder: `.\run.bat`
+- **VS Code:** open the project folder (or `RentNGo.code-workspace`), open `src/app/RentNGo.java` and
+  press **F5**, or use Code Runner's **Run Code** ▷ button (the project settings make it build the
+  whole project, not just one file).
+- **Any system, by hand:** see [Building & Running](#building--running) below.
+
+**3. Log in** with a demo account:
+
+| Role     | Username | Password   |
+|----------|----------|------------|
+| Admin    | `admin`  | `admin123` |
+| Customer | `john`   | `john123`  |
+
+The `data/` folder (accounts, vehicles, bookings) is created on the first run, with the demo
+accounts and vehicles in it. It isn't in Git, so every fresh copy starts with the demo data.
+
+**Common problems**
+
+- *"javac was not found"*: no JDK installed, or it isn't on PATH. Install one and reopen the terminal.
+- *"package gui does not exist"*: something compiled only one file. Use `run.bat` or the full
+  `javac` command below, which compile the whole `src/` folder.
+- *"RentNGo is already running on this computer"*: close the other RentNGo window first.
+
 ## Features
 
 - **User Authentication**: Login and sign-up for Admin and Customer roles. New admin accounts must be
@@ -54,11 +95,6 @@ A Java Swing desktop application for managing vehicle rentals.
 - **Light / Dark mode**: Modern [FlatLaf](https://www.formdev.com/flatlaf/) look with a Light/Dark
   button on both dashboards. The choice is remembered; the login screen always stays dark.
 - **Saved Data**: Everything is saved automatically to the `data/` folder.
-
-## Demo Accounts
-
-- **Admin**: username `admin`, password `admin123`
-- **Customer**: username `john`, password `john123`
 
 ## Vehicle Types & Pricing
 
@@ -133,9 +169,9 @@ On macOS/Linux use `:` instead of `;` in the classpath (`"out:lib/*"`). Keep the
 `--enable-native-access=ALL-UNNAMED` only silences a warning newer Java versions print when FlatLaf
 loads its small native library for the window title bar.
 
-In VS Code, open the `RentNGo` folder, add the jars under **Java Projects → Referenced Libraries**
-(or add `"java.project.referencedLibraries": ["lib/**/*.jar"]` to `.vscode/settings.json`), then run
-`src/app/RentNGo.java` with the Java extension's **Run** button.
+In VS Code, open the `RentNGo` folder itself (not a parent folder), so its `.vscode/` settings are
+used: they already add `lib/*.jar` to the project and set up **F5** (`.vscode/launch.json`) and Code
+Runner. Then run `src/app/RentNGo.java`.
 
 Images such as the login background are loaded from the classpath (`/resources/...`), so they
 must be in `out/resources/` when running from `out`. If the login image is missing, the login
@@ -176,7 +212,7 @@ rules, late fees, who can see which bookings), ReportService, and recovery from 
 
 ```bash
 javac -encoding UTF-8 -cp "out;lib/junit-platform-console-standalone-1.13.4.jar" -d test-out test/service/*.java test/gui/*.java
-java -jar lib/junit-platform-console-standalone-1.13.4.jar execute -cp "out;test-out" --select-package service --select-package gui
+java -jar lib/junit-platform-console-standalone-1.13.4.jar execute -cp "out;test-out;lib/flatlaf-3.7.2.jar" --select-package service --select-package gui
 ```
 
 **Plain-Java tests** (`test/RentNGoTests.java`, no library needed):
@@ -268,10 +304,14 @@ RentNGo/
 │   │   ├── LoginSecurityTest.java    # JUnit 5: lockout, change password, forced change, hash upgrade
 │   │   ├── PaymentRulesTest.java     # JUnit 5: exact card/GCash, cash limit, customer match, cancellation fee
 │   │   ├── BookingAvailabilityTest.java # JUnit 5: same-day handover, overlaps, overdue rentals
-│   │   └── CsvWriterTest.java        # JUnit 5: quotes, formulas, commas, newlines, peso sign
+│   │   ├── CsvWriterTest.java        # JUnit 5: quotes, formulas, commas, newlines, peso sign
+│   │   ├── AccessControlTest.java    # JUnit 5: permission checks inside the services
+│   │   ├── ReviewFixesTest.java      # JUnit 5: refused saves are undone, safe deletes, random passwords
+│   │   └── Stores.java               # (helper: opens a test data folder with the admin logged in)
 │   └── gui/
 │       ├── WindowSessionTest.java    # JUnit 5: closing session windows, admin session check
 │       └── RentalRecordsExportTest.java # JUnit 5: Rental Records export is escaped
+├── run.bat                           # Windows: compile and start in one step
 ├── data/                             # Saved data (created at runtime, not in Git)
 └── images/                           # Vehicle photos and images/profiles/ (profile pictures)
 ```

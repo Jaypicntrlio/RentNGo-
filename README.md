@@ -2,6 +2,24 @@
 
 A Java Swing desktop application for managing vehicle rentals.
 
+![RentNGo admin dashboard](screenshots/02-admin-dashboard.png)
+
+## Screenshots
+
+| Login | Reports |
+|:---:|:---:|
+| ![Login screen](screenshots/01-login.png) | ![Admin Reports view](screenshots/03-reports.png) |
+| **Manage Vehicles** | **Manage Customers** |
+| ![Manage Vehicles](screenshots/05-manage-vehicles.png) | ![Manage Customers](screenshots/06-manage-customers.png) |
+| **Rent Vehicle** | **Return Vehicle + payment** |
+| ![Rent Vehicle](screenshots/07-rent-vehicle.png) | ![Return Vehicle](screenshots/08-return-vehicle.png) |
+| **Payments** | **Rental Records** |
+| ![Payments](screenshots/09-payments.png) | ![Rental Records](screenshots/10-rental-records.png) |
+| **Audit Log** | **Customer Dashboard** |
+| ![Audit Log](screenshots/04-audit-log.png) | ![Customer Dashboard](screenshots/11-customer-dashboard.png) |
+| **Light mode** | |
+| ![Customer Dashboard in light mode](screenshots/12-customer-dashboard-light.png) | |
+
 ## How to Run
 
 **You need:** a JDK (Java Development Kit), version 17 or newer, not just a JRE. Check it in a

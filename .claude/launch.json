@@ -1,0 +1,38 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "forkies-server",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "C:/Users/johnp/Documents/forkies-website/server/index.js"
+      ],
+      "port": 8765
+    },
+    {
+      "name": "forkies-drafts",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8766",
+        "--bind",
+        "127.0.0.1",
+        "--directory",
+        "C:/Users/johnp/Documents/forkies-website"
+      ],
+      "port": 8766
+    },
+    {
+      "name": "forkies-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--prefix",
+        "C:/Users/johnp/Documents/forkies-website"
+      ],
+      "port": 8765
+    }
+  ]
+}

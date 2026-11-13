@@ -1,0 +1,15 @@
+{
+    "java.jdt.ls.vmargs": "-XX:+UseParallelGC -XX:GCTimeRatio=4 -XX:AdaptiveSizePolicyWeight=90 -Dsun.zip.disableMemoryMapping=true -Xmx128G -Xms100m -Xlog:disable",
+
+    // Java project layout: sources in src/ and test/, jars (FlatLaf, JUnit) in lib/
+    "java.project.sourcePaths": ["src", "test"],
+    "java.project.referencedLibraries": ["lib/**/*.jar"],
+    "java.project.outputPath": "bin",
+
+    // Code Runner's "Run Code" button: build the whole project, then start the app
+    "code-runner.runInTerminal": true,
+    "code-runner.saveAllFilesBeforeRun": true,
+    "code-runner.executorMap": {
+        "java": "cd $workspaceRoot; javac -encoding UTF-8 -cp 'lib/*' -d out (Get-ChildItem -Recurse src -Filter *.java).FullName; if ($?) { Copy-Item -Recurse -Force src\\resources out\\; java --enable-native-access=ALL-UNNAMED -cp 'out;lib/*' app.RentNGo }"
+    }
+}

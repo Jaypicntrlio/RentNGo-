@@ -1,0 +1,7 @@
+{
+    // Double-click this file (or File > Open Workspace from File...) to open RentNGo in VS Code
+    // with its Java settings, so the Run button and F5 work.
+    "folders": [
+        { "path": "." }
+    ]
+}

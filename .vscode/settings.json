@@ -5,6 +5,8 @@
     "java.project.sourcePaths": ["src", "test"],
     "java.project.referencedLibraries": ["lib/**/*.jar"],
     "java.project.outputPath": "bin",
+    // tests use the demo logins without the forced password change
+    "java.test.config": { "vmArgs": ["-Drentngo.allowDemoPasswords=true"] },
 
     // Code Runner's "Run Code" button: build the whole project, then start the app
     "code-runner.runInTerminal": true,

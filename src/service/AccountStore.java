@@ -78,6 +78,12 @@ public class AccountStore {
         }
         List<User> users = new ArrayList<>();
         for (TsvFile.Row row : contents.rows) {
+            // count the ID even if the row is skipped below, so it is never handed out again
+            String id = row.fields.length > 1 ? row.fields[1] : "";
+            for (String prefix : new String[]{"CUS", "ADM"}) {
+                int n = TsvFile.idNumber(id, prefix);
+                if (n > sequences.getOrDefault(prefix, 0)) sequences.put(prefix, n);
+            }
             try {
                 users.add(parseUser(row.fields));
             } catch (RuntimeException e) {

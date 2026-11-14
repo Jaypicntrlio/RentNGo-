@@ -303,6 +303,7 @@ public class ReturnVehicleFrame extends JFrame {
     private JSpinner dateSpinner(LocalDate initial) {
         JSpinner spinner = new JSpinner(new SpinnerDateModel());
         JSpinner.DateEditor editor = new JSpinner.DateEditor(spinner, "yyyy-MM-dd");
+        editor.getFormat().setLenient(false); // impossible dates are refused, not rolled over
         spinner.setEditor(editor);
         UIConstants.styleDarkSpinnerEditor(spinner);
         spinner.setValue(java.sql.Date.valueOf(initial));
@@ -409,7 +410,7 @@ public class ReturnVehicleFrame extends JFrame {
             totalPaymentLabel.setText("\u20B10.00");
             return;
         }
-        BigDecimal additional = parseCharge();
+        BigDecimal additional = chargeOrZero();
         LocalDate returnDate = selectedReturnDate();
         BigDecimal lateFee = bookingService.calculateLateFee(booking, returnDate);
         BigDecimal due = bookingService.previewAmountDue(booking, returnDate, additional);
@@ -439,7 +440,7 @@ public class ReturnVehicleFrame extends JFrame {
     private void updateChange() {
         Booking booking = selectedBooking();
         if (booking == null || changeNote == null) return;
-        BigDecimal due = bookingService.previewAmountDue(booking, selectedReturnDate(), parseCharge());
+        BigDecimal due = bookingService.previewAmountDue(booking, selectedReturnDate(), chargeOrZero());
         if (!Money.isPositive(due)) {
             changeNote.setText("Nothing to pay \u2014 already paid in full");
             changeNote.setForeground(UIConstants.DARK_TEXT_MUTED);
@@ -464,12 +465,21 @@ public class ReturnVehicleFrame extends JFrame {
                 .toInstant().atZone(java.time.ZoneId.systemDefault()).toLocalDate();
     }
 
+    /** The additional charge, ₱0 when the field is empty, or null when it isn't a number. */
     private BigDecimal parseCharge() {
+        String text = additionalChargeField.getText().trim();
+        if (text.isEmpty()) return Money.ZERO;
         try {
-            return Money.parse(additionalChargeField.getText());
+            return Money.parse(text);
         } catch (NumberFormatException ex) {
-            return Money.ZERO;
+            return null;
         }
+    }
+
+    /** For the running total while typing: an unreadable charge counts as ₱0 there. */
+    private BigDecimal chargeOrZero() {
+        BigDecimal charge = parseCharge();
+        return charge == null ? Money.ZERO : charge;
     }
 
     private void confirmReturn() {
@@ -480,6 +490,11 @@ public class ReturnVehicleFrame extends JFrame {
             return;
         }
         BigDecimal additional = parseCharge();
+        if (additional == null) {
+            showError("Additional charge must be a number, e.g. 1500 or 1,500.50");
+            additionalChargeField.requestFocusInWindow();
+            return;
+        }
         if (additional.signum() < 0) {
             showError("Additional charge cannot be negative");
             return;

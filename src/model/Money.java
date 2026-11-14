@@ -17,7 +17,11 @@ public final class Money {
 
     /** Parses text such as "2500", "2,500.50" or "2500.0" (as typed or as saved). */
     public static BigDecimal parse(String text) {
-        return round(new BigDecimal(text.trim().replace(",", "")));
+        String plain = text.trim().replace(",", "").replace("\u20B1", "").trim();
+        if (plain.toLowerCase().contains("e")) {
+            throw new NumberFormatException("not a plain amount: " + text); // "1e5000000" would be huge and slow
+        }
+        return round(new BigDecimal(plain));
     }
 
     /** For whole-number literals in code, e.g. Money.of(2500). */

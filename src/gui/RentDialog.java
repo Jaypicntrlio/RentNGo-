@@ -124,6 +124,7 @@ public class RentDialog extends JDialog {
 
         startDateSpinner = new JSpinner(new SpinnerDateModel());
         JSpinner.DateEditor startEditor = new JSpinner.DateEditor(startDateSpinner, "yyyy-MM-dd");
+        startEditor.getFormat().setLenient(false); // impossible dates are refused, not rolled over
         startDateSpinner.setEditor(startEditor);
         UIConstants.styleDarkSpinnerEditor(startDateSpinner);
         startDateSpinner.setValue(java.sql.Date.valueOf(LocalDate.now().plusDays(1)));
@@ -141,6 +142,7 @@ public class RentDialog extends JDialog {
 
         endDateSpinner = new JSpinner(new SpinnerDateModel());
         JSpinner.DateEditor endEditor = new JSpinner.DateEditor(endDateSpinner, "yyyy-MM-dd");
+        endEditor.getFormat().setLenient(false); // impossible dates are refused, not rolled over
         endDateSpinner.setEditor(endEditor);
         UIConstants.styleDarkSpinnerEditor(endDateSpinner);
         endDateSpinner.setValue(java.sql.Date.valueOf(LocalDate.now().plusDays(2)));
@@ -223,6 +225,11 @@ public class RentDialog extends JDialog {
         }
 
         long days = model.Booking.calculateDays(start, end);
+        if (days > service.BookingService.MAX_RENTAL_DAYS) {
+            totalCostLabel.setText("Max " + service.BookingService.MAX_RENTAL_DAYS + " days");
+            totalCostLabel.setForeground(UIConstants.DANGER);
+            return;
+        }
         java.math.BigDecimal total = vehicle.calculateRentalCost((int) days);
         totalCostLabel.setText(String.format("\u20B1%,.2f", total));
         totalCostLabel.setForeground(UIConstants.SUCCESS);

@@ -109,11 +109,13 @@ public class PaymentService {
             write();
         } catch (TsvFile.DataChangedException e) {
             TsvFile.reportChanged(e);
+        } catch (IOException e) {
+            System.err.println(e.getMessage());
         }
     }
 
     /** Like save(), but hands a refused save back to the caller so it can undo its change. */
-    private void write() throws TsvFile.DataChangedException {
+    private void write() throws IOException {
         if (dataFile == null) return;
         if (readOnly) {
             System.err.println("Not saving payments: " + readOnlyMessage);
@@ -132,7 +134,7 @@ public class PaymentService {
             readOnlyMessage = e.getMessage();
             throw e;
         } catch (IOException e) {
-            System.err.println("Could not save payments: " + e.getMessage());
+            throw new IOException("Could not save payments: " + e.getMessage(), e);
         }
     }
 
@@ -189,7 +191,7 @@ public class PaymentService {
         }
         try {
             write();
-        } catch (TsvFile.DataChangedException e) {
+        } catch (IOException e) {
             undoPayment.run();
             bookingService.restore(before);
             throw new ValidationException(e.getMessage());
@@ -294,7 +296,7 @@ public class PaymentService {
             payments.add(refundRow);
             try {
                 write();
-            } catch (TsvFile.DataChangedException e) {
+            } catch (IOException e) {
                 // no refund row could be saved: the booking goes back to open, so nobody is refunded twice
                 payments.remove(refundRow);
                 paymentCounter--;

@@ -7,6 +7,11 @@ final class Stores {
 
     private Stores() {}
 
+    static {
+        // the demo logins are used throughout the tests without the forced password change
+        System.setProperty(AuthService.ALLOW_DEMO_PASSWORDS, "true");
+    }
+
     /** A DataStore on this folder with the demo admin logged in (if the accounts could be loaded). */
     static DataStore asAdmin(Path dataDir) {
         DataStore store = new DataStore(dataDir.toFile(), null);

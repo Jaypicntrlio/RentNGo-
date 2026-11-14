@@ -74,10 +74,19 @@ accounts and vehicles in it. It isn't in Git, so every fresh copy starts with th
     Unknown usernames get the same message as wrong passwords.
   - **Change Password** is in both dashboards. Customers added by an admin start with a random
     10-character password, shown to the admin once, and must choose their own password before they can continue.
+  - The demo passwords printed on the login screen (`admin123`, `john123`, `jane123`) must be changed at
+    the first login, can't be chosen again, and can't approve new admin accounts.
+  - Wrong-password counts and locks are saved in `data/lockouts.properties`, so restarting the app
+    doesn't reset them.
 - **Vehicle Management**: Add, edit, delete vehicles (Cars, SUVs, Trucks) with photos and an
   "In Service" switch for vehicles under maintenance.
 - **Booking System**: Rent vehicles by date with automatic cost calculation; availability is
   worked out from bookings, so a vehicle can be booked for any free dates.
+  - Rentals are at most 30 days, start at most 365 days ahead, and a customer can hold at most 3
+    upcoming or active rentals at once (`BookingService.MAX_*`).
+  - A vehicle can't be picked up while it is out of service or still out with a previous renter.
+  - A booking whose start date passed without a pick-up (a no-show) can be cancelled by an admin.
+  - A vehicle's price and type can't change while it has upcoming or active bookings.
 - **Returns & Payments**: Mark pick-ups and returns, automatic late fees, payments, refunds on
   cancellation, and receipts listing every payment and refund for the booking (Save as TXT).
   - Card and GCash are charged the exact amount due; only Cash can be more (for change), by at
@@ -230,8 +239,11 @@ rules, late fees, who can see which bookings), ReportService, and recovery from 
 
 ```bash
 javac -encoding UTF-8 -cp "out;lib/junit-platform-console-standalone-1.13.4.jar" -d test-out test/service/*.java test/gui/*.java
-java -jar lib/junit-platform-console-standalone-1.13.4.jar execute -cp "out;test-out;lib/flatlaf-3.7.2.jar" --select-package service --select-package gui
+java -Drentngo.allowDemoPasswords=true -jar lib/junit-platform-console-standalone-1.13.4.jar execute -cp "out;test-out;lib/flatlaf-3.7.2.jar" --select-package service --select-package gui
 ```
+
+`-Drentngo.allowDemoPasswords=true` lets the tests use the demo logins without the forced password
+change (the app itself never sets it).
 
 **Plain-Java tests** (`test/RentNGoTests.java`, no library needed):
 

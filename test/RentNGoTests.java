@@ -23,6 +23,7 @@ public class RentNGoTests {
     private static File tmp;
 
     public static void main(String[] args) throws Exception {
+        System.setProperty("rentngo.allowDemoPasswords", "true"); // demo logins without the forced change
         tmp = Files.createTempDirectory("rentngo-tests").toFile();
 
         run("Return charge after payment is still collected", RentNGoTests::returnChargeAfterPayment);
@@ -34,7 +35,7 @@ public class RentNGoTests {
         run("Late fee is charged per late day", RentNGoTests::lateFeeCharged);
         run("Return date before start / in future is rejected", RentNGoTests::badReturnDatesRejected);
         run("Cancelling a paid booking records a refund", RentNGoTests::cancelPaidBookingRefunds);
-        run("A rental that already started can't be cancelled", RentNGoTests::startedRentalCannotBeCancelled);
+        run("A started rental can't be cancelled by the customer; an admin can cancel the no-show", RentNGoTests::startedRentalCannotBeCancelled);
         run("Paying twice or a stale amount is rejected", RentNGoTests::duplicateAndStalePaymentsRejected);
         run("Early return frees the remaining dates", RentNGoTests::earlyReturnFreesDates);
         run("Cancelling one booking keeps the vehicle's other bookings", RentNGoTests::cancelKeepsOtherBookings);
@@ -220,7 +221,14 @@ public class RentNGoTests {
                 + TODAY.plusDays(3) + "\t10000.0\tCONFIRMED\t\t0.0\t0.0\t0.0\t0.0\n");
         w.restart();
         check(!w.bookings.isVehicleAvailableToday("VEH001"), "vehicle should be out");
+        w.auth.logout();
+        w.auth.login("john", "john123");
         expectThrows(BookingException.class, () -> w.bookings.cancelBooking("BKG0001"));
+        // never picked up: an admin can cancel the no-show so it stops blocking the car
+        w.auth.logout();
+        w.auth.login("admin", "admin123");
+        w.bookings.cancelBooking("BKG0001");
+        check(w.bookings.isVehicleAvailableToday("VEH001"), "the no-show no longer blocks the vehicle");
     }
 
     static void duplicateAndStalePaymentsRejected() throws Exception {

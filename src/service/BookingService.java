@@ -166,11 +166,13 @@ public class BookingService {
             write();
         } catch (TsvFile.DataChangedException e) {
             TsvFile.reportChanged(e);
+        } catch (IOException e) {
+            System.err.println(e.getMessage());
         }
     }
 
     /** Like save(), but hands a refused save back to the caller so it can undo its change. */
-    private void write() throws TsvFile.DataChangedException {
+    private void write() throws IOException {
         if (dataFile == null) return;
         if (readOnly) {
             System.err.println("Not saving bookings: " + readOnlyMessage);
@@ -194,7 +196,7 @@ public class BookingService {
             readOnlyMessage = e.getMessage();
             throw e;
         } catch (IOException e) {
-            System.err.println("Could not save bookings: " + e.getMessage());
+            throw new IOException("Could not save bookings: " + e.getMessage(), e);
         }
     }
 
@@ -206,7 +208,7 @@ public class BookingService {
     void saveOrUndo(Runnable undo) throws BookingException {
         try {
             write();
-        } catch (TsvFile.DataChangedException e) {
+        } catch (IOException e) { // changed on disk, or couldn't be written at all
             undo.run();
             throw new BookingException(e.getMessage());
         }
@@ -273,6 +275,17 @@ public class BookingService {
 
     // ===== Booking lifecycle =====
 
+    /** Longest rental; also keeps day counts far away from int overflow in the price maths. */
+    public static final int MAX_RENTAL_DAYS = 30;
+    /** How far ahead a rental can start. */
+    public static final int MAX_DAYS_AHEAD = 365;
+    /** Upcoming or active rentals a customer may hold at once when booking for themselves (admins aren't limited). */
+    public static final int MAX_OPEN_BOOKINGS_PER_CUSTOMER = 3;
+
+    private long countOpenBookings(String customerId) {
+        return bookings.stream().filter(b -> b.getCustomerId().equals(customerId) && isOpen(b)).count();
+    }
+
     public Booking createBooking(String customerId, String vehicleId, LocalDate startDate, LocalDate endDate) throws BookingException, VehicleNotFoundException {
         // an admin can book for anyone; a customer only for themselves
         String denied = authService == null ? AuthService.NOT_LOGGED_IN : authService.adminOrSelf(customerId, "make bookings");
@@ -286,6 +299,16 @@ public class BookingService {
         }
         if (startDate.isBefore(LocalDate.now())) {
             throw new BookingException("Start date cannot be in the past");
+        }
+        if (startDate.isAfter(LocalDate.now().plusDays(MAX_DAYS_AHEAD))) {
+            throw new BookingException("Bookings can be made at most " + MAX_DAYS_AHEAD + " days ahead");
+        }
+        if (Booking.calculateDays(startDate, endDate) > MAX_RENTAL_DAYS) {
+            throw new BookingException("A rental can be at most " + MAX_RENTAL_DAYS + " days long");
+        }
+        if (authService.isCustomerSession() && countOpenBookings(customerId) >= MAX_OPEN_BOOKINGS_PER_CUSTOMER) {
+            throw new BookingException("You already have " + MAX_OPEN_BOOKINGS_PER_CUSTOMER
+                    + " upcoming or active rentals. Please return or cancel one before booking another.");
         }
 
         Vehicle vehicle = vehicleService.getVehicleById(vehicleId)
@@ -312,8 +335,8 @@ public class BookingService {
         bookings.add(booking);
         try {
             write();
-        } catch (TsvFile.DataChangedException e) {
-            // the other copy may have booked these dates: undo, and keep the number unused
+        } catch (IOException e) {
+            // not saved (another copy may have booked these dates, or the file is locked): undo, keep the number unused
             bookings.remove(booking);
             bookingCounter--;
             throw new BookingException(e.getMessage());
@@ -342,9 +365,12 @@ public class BookingService {
                     + "Please return the vehicle instead.");
         }
         checkTransition(booking, BookingStatus.CANCELLED);
-        if (booking.getStartDate().isBefore(LocalDate.now())) {
-            throw new BookingException("This rental has already started, so it can't be cancelled. "
-                    + "Please return the vehicle instead.");
+        // a CONFIRMED booking whose start has passed is a no-show (never picked up): only an admin can
+        // cancel it, so it stops blocking the vehicle without charging a return for a car that never left
+        boolean noShow = booking.getStartDate().isBefore(LocalDate.now());
+        if (noShow && !authService.isAdminSession()) {
+            throw new BookingException("This rental's start date has passed, so it can't be cancelled here. "
+                    + "Please contact RentNGo.");
         }
 
         BigDecimal fee = calculateCancellationFee(booking);
@@ -353,7 +379,8 @@ public class BookingService {
         booking.setAmountRefunded(booking.getAmountRefunded().add(refund));
         booking.setStatus(BookingStatus.CANCELLED);
         saveOrUndo(undo); // a refused save must not hand back a refund for a booking still open on disk
-        String details = "cancelled before " + booking.getStartDate();
+        String details = noShow ? "no-show, start date " + booking.getStartDate() + " passed"
+                : "cancelled before " + booking.getStartDate();
         if (!Money.isPositive(booking.getAmountPaid())) {
             details += ", nothing paid";
         } else {
@@ -424,6 +451,18 @@ public class BookingService {
         if (LocalDate.now().isBefore(booking.getStartDate())) {
             throw new BookingException("This rental starts on " + booking.getStartDate()
                     + ", so the vehicle can't be picked up yet.");
+        }
+        if (vehicleService.getVehicleById(booking.getVehicleId()).map(v -> !v.isAvailable()).orElse(false)) {
+            throw new BookingException("This vehicle is out of service, so it can't be picked up. "
+                    + "Put it back in service first, or cancel the booking.");
+        }
+        Optional<Booking> stillOut = bookings.stream()
+                .filter(b -> b != booking && b.getVehicleId().equals(booking.getVehicleId())
+                        && b.getStatus() == BookingStatus.ACTIVE)
+                .findFirst();
+        if (stillOut.isPresent()) {
+            throw new BookingException("This vehicle hasn't come back from rental " + stillOut.get().getBookingId()
+                    + " yet. Record that return first.");
         }
         Runnable undo = undoTo(booking);
         booking.setStatus(BookingStatus.ACTIVE);

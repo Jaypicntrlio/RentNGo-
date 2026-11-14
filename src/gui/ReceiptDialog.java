@@ -93,6 +93,7 @@ public class ReceiptDialog extends JDialog {
         if (!file.getName().toLowerCase().endsWith(".txt")) {
             file = new File(file.getParentFile(), file.getName() + ".txt");
         }
+        if (!FileSaving.okToWrite(this, file)) return;
         try {
             Files.writeString(file.toPath(), receiptText, StandardCharsets.UTF_8);
             JOptionPane.showMessageDialog(this, "Receipt saved to " + file.getName(), "Saved", JOptionPane.INFORMATION_MESSAGE);

@@ -223,6 +223,7 @@ public class RentVehicleFrame extends JFrame {
     private JSpinner dateSpinner(LocalDate initial) {
         JSpinner spinner = new JSpinner(new SpinnerDateModel());
         JSpinner.DateEditor editor = new JSpinner.DateEditor(spinner, "yyyy-MM-dd");
+        editor.getFormat().setLenient(false); // impossible dates are refused, not rolled over
         spinner.setEditor(editor);
         UIConstants.styleDarkSpinnerEditor(spinner);
         spinner.setValue(java.sql.Date.valueOf(initial));
@@ -271,6 +272,11 @@ public class RentVehicleFrame extends JFrame {
             return;
         }
         long days = model.Booking.calculateDays(start, end);
+        if (days > service.BookingService.MAX_RENTAL_DAYS) {
+            totalDaysLabel.setText(days + " (max " + service.BookingService.MAX_RENTAL_DAYS + ")");
+            totalAmountLabel.setText("-");
+            return;
+        }
         java.math.BigDecimal total = v.calculateRentalCost((int) days);
         totalDaysLabel.setText(String.valueOf(days));
         totalAmountLabel.setText(String.format("\u20B1%,.2f", total));

@@ -29,6 +29,17 @@ public class AuthService {
     public static final String NOT_LOGGED_IN = "Please log in first.";
     public static final String CHANGE_PASSWORD_FIRST = "Please choose a new password first.";
 
+    /**
+     * The demo passwords printed on the login screen. Anyone can read them, so an account using one
+     * must choose a new password right after logging in, and it can't approve new admins.
+     */
+    static final java.util.Set<String> DEMO_PASSWORDS = java.util.Set.of("admin123", "john123", "jane123");
+    /**
+     * Test runs set this system property (-Drentngo.allowDemoPasswords=true) so the demo logins can be
+     * used without the forced change. The app itself never sets it.
+     */
+    static final String ALLOW_DEMO_PASSWORDS = "rentngo.allowDemoPasswords";
+
     /** Wrong passwords allowed for one username before it is locked. */
     public static final int MAX_FAILED_ATTEMPTS = 5;
     public static final Duration LOCKOUT = Duration.ofMinutes(5);
@@ -66,6 +77,7 @@ public class AuthService {
         this.store = store;
         this.users = new ArrayList<>();
         loadUsers();
+        loadAttempts();
     }
 
     /**
@@ -204,15 +216,28 @@ public class AuthService {
             String nowLocked = recordFailure(key);
             throw new AuthenticationException(nowLocked != null ? nowLocked : INVALID_LOGIN_MESSAGE);
         }
-        attempts.remove(key);
+        if (attempts.remove(key) != null) saveAttempts();
 
         // checked only after the password matches, so it doesn't reveal which accounts exist
         if (!user.isActive()) {
             throw new AuthenticationException(DEACTIVATED_MESSAGE);
         }
         upgradeHashIfNeeded(user, password);
+        if (isDemoPassword(password) && !user.isMustChangePassword()) {
+            user.setMustChangePassword(true); // the password is printed on the login screen
+            try {
+                persist();
+            } catch (ValidationException e) {
+                System.err.println(e.getMessage()); // still required for this session
+            }
+        }
         currentUser = user;
         return publicCopy(user);
+    }
+
+    /** True for a password printed on the login screen (unless a test run allows them). */
+    static boolean isDemoPassword(String password) {
+        return password != null && DEMO_PASSWORDS.contains(password) && !Boolean.getBoolean(ALLOW_DEMO_PASSWORDS);
     }
 
     // ===== Lockout after too many wrong passwords =====
@@ -222,8 +247,14 @@ public class AuthService {
         this.clock = clock;
     }
 
-    private static String lockKey(String username) {
-        return username == null ? "" : username.trim().toLowerCase(Locale.ROOT);
+    /**
+     * The counter key for a username. For an existing account it is that account's own username, so
+     * spellings that equalsIgnoreCase still matches (e.g. "admın" with a dotless i) share its lock.
+     */
+    private String lockKey(String username) {
+        User user = findByUsername(username);
+        String name = user != null ? user.getUsername() : (username == null ? "" : username.trim());
+        return name.toLowerCase(Locale.ROOT);
     }
 
     /** "Too many attempts. Try again in X minutes." while the username is locked, otherwise null. */
@@ -233,6 +264,7 @@ public class AuthService {
         Instant now = clock.instant();
         if (!now.isBefore(a.lockedUntil)) {
             attempts.remove(key); // lock expired: start counting again
+            saveAttempts();
             return null;
         }
         long minutes = Math.max(1, (Duration.between(now, a.lockedUntil).getSeconds() + 59) / 60);
@@ -243,12 +275,59 @@ public class AuthService {
     private String recordFailure(String key) {
         Attempts a = attempts.computeIfAbsent(key, k -> new Attempts());
         a.failures++;
-        if (a.failures < MAX_FAILED_ATTEMPTS) return null;
+        if (a.failures < MAX_FAILED_ATTEMPTS) {
+            saveAttempts();
+            return null;
+        }
         a.failures = 0;
         a.lockedUntil = clock.instant().plus(LOCKOUT);
-        audit.recordAs("", AuditLog.LOGIN_LOCKED, null, "username '" + key + "' locked for " + LOCKOUT.toMinutes()
+        saveAttempts();
+        // only real usernames go in the log, so a password typed into the username box is never recorded
+        String who = findByUsername(key) != null ? "username '" + key + "'" : "an unknown username";
+        audit.recordAs("", AuditLog.LOGIN_LOCKED, null, who + " locked for " + LOCKOUT.toMinutes()
                 + " minutes after " + MAX_FAILED_ATTEMPTS + " wrong passwords");
         return lockMessage(key);
+    }
+
+    /** data/lockouts.properties: wrong-password counts and locks, so restarting the app doesn't reset them. */
+    private java.io.File attemptsFile() {
+        return store == null ? null : new java.io.File(store.getFile().getParentFile(), "lockouts.properties");
+    }
+
+    private void loadAttempts() {
+        java.io.File file = attemptsFile();
+        if (file == null || !file.isFile()) return;
+        java.util.Properties props = new java.util.Properties();
+        try (java.io.Reader in = new java.io.InputStreamReader(new java.io.FileInputStream(file), java.nio.charset.StandardCharsets.UTF_8)) {
+            props.load(in);
+        } catch (IOException e) {
+            System.err.println("Could not read " + file.getName() + ": " + e.getMessage());
+            return;
+        }
+        for (String key : props.stringPropertyNames()) {
+            try {
+                String[] parts = props.getProperty(key).split(",", -1);
+                Attempts a = new Attempts();
+                a.failures = Integer.parseInt(parts[0]);
+                a.lockedUntil = parts.length > 1 && !parts[1].isEmpty() ? Instant.ofEpochMilli(Long.parseLong(parts[1])) : null;
+                attempts.put(key, a);
+            } catch (RuntimeException ignored) {
+                // a damaged line just means no count for that username
+            }
+        }
+    }
+
+    private void saveAttempts() {
+        java.io.File file = attemptsFile();
+        if (file == null || readOnly) return;
+        java.util.Properties props = new java.util.Properties();
+        attempts.forEach((key, a) -> props.setProperty(key,
+                a.failures + "," + (a.lockedUntil == null ? "" : String.valueOf(a.lockedUntil.toEpochMilli()))));
+        try (java.io.Writer out = new java.io.OutputStreamWriter(new java.io.FileOutputStream(file), java.nio.charset.StandardCharsets.UTF_8)) {
+            props.store(out, "RentNGo wrong-password counts (username=failures,lockedUntilMillis)");
+        } catch (IOException e) {
+            System.err.println("Could not save " + file.getName() + ": " + e.getMessage());
+        }
     }
 
     private User findByUsername(String username) {
@@ -313,8 +392,11 @@ public class AuthService {
             String nowLocked = recordFailure(key);
             throw new ValidationException(nowLocked != null ? nowLocked : "Current password is incorrect");
         }
-        attempts.remove(key);
+        if (attempts.remove(key) != null) saveAttempts();
         validatePasswordStrength(newPassword);
+        if (DEMO_PASSWORDS.contains(newPassword)) {
+            throw new ValidationException("That password is printed on the login screen. Please choose another one.");
+        }
         if (newPassword.equals(currentPassword)) {
             throw new ValidationException("New password must be different from the current one");
         }
@@ -384,6 +466,10 @@ public class AuthService {
 
     boolean isAdminSession() {
         return role() == Role.ADMIN;
+    }
+
+    boolean isCustomerSession() {
+        return role() == Role.CUSTOMER;
     }
 
     /** The real customer record (for other services' checks); never handed outside the service package. */
@@ -456,6 +542,10 @@ public class AuthService {
         if (fullName == null || fullName.trim().isEmpty()) {
             throw new ValidationException("Full name is required");
         }
+        // Swing shows text starting with <html> as a web page (it can even load images from the internet)
+        if (fullName.contains("<") || fullName.contains(">")) {
+            throw new ValidationException("Full name can't contain < or >");
+        }
     }
 
     private static String trimmed(String s) {
@@ -495,7 +585,12 @@ public class AuthService {
             throw new ValidationException(nowLocked != null ? nowLocked : "Admin accounts must be approved by an existing admin. "
                     + "The approving admin's username or password is incorrect.");
         }
-        attempts.remove(key);
+        if (attempts.remove(key) != null) saveAttempts();
+        // the demo password is printed on the login screen, so it can't be used to create admins
+        if (!approver.isActive() || approver.isMustChangePassword() || isDemoPassword(approverPw)) {
+            throw new ValidationException("The approving admin must log in and change their password first "
+                    + "(the demo password can't approve new admins).");
+        }
         validateNewAccount(username, password, fullName);
         validateEmail(email, true);
         Admin admin = new Admin(nextAdminId(), username.trim(), PasswordHasher.hash(password),
@@ -567,11 +662,21 @@ public class AuthService {
         validateCustomerDetails(fullName, email, phone, licenseNumber, userId);
         requireWritable();
         String before = describe(customer);
+        Customer old = customer.copy();
         customer.setFullName(fullName.trim());
         customer.setEmail(trimmed(email));
         customer.setPhone(phone.trim());
         customer.setLicenseNumber(licenseNumber.trim());
-        persist();
+        try {
+            persist();
+        } catch (ValidationException e) {
+            // not saved: put the details back, so a later save can't write this edit without an audit line
+            customer.setFullName(old.getFullName());
+            customer.setEmail(old.getEmail());
+            customer.setPhone(old.getPhone());
+            customer.setLicenseNumber(old.getLicenseNumber());
+            throw e;
+        }
         audit.record(AuditLog.CUSTOMER_EDITED, null, "was " + before + "; now " + describe(customer));
     }
 

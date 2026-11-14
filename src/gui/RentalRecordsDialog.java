@@ -244,7 +244,7 @@ public class RentalRecordsDialog extends JDialog {
     }
 
     private void applyFilters() {
-        RowFilter<DefaultTableModel, Object> searchFilter = RowFilter.regexFilter("(?i)" + searchField.getText().trim());
+        RowFilter<DefaultTableModel, Object> searchFilter = RowFilter.regexFilter("(?i)" + java.util.regex.Pattern.quote(searchField.getText().trim()));
         RowFilter<DefaultTableModel, Object> statusFilter = RowFilter.regexFilter(".*");
 
         String selectedStatus = (String) statusFilterCombo.getSelectedItem();
@@ -289,6 +289,7 @@ public class RentalRecordsDialog extends JDialog {
             if (!file.getName().toLowerCase().endsWith(".csv")) {
                 file = new java.io.File(file.getParentFile(), file.getName() + ".csv");
             }
+            if (!FileSaving.okToWrite(this, file)) return;
             try {
                 exportTo(file);
                 JOptionPane.showMessageDialog(this, "Exported successfully to " + file.getName(), "Export Complete", JOptionPane.INFORMATION_MESSAGE);

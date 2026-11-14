@@ -177,6 +177,8 @@ public class VehicleService {
             write();
         } catch (TsvFile.DataChangedException e) {
             TsvFile.reportChanged(e);
+        } catch (IOException e) {
+            System.err.println(e.getMessage());
         }
     }
 
@@ -187,14 +189,14 @@ public class VehicleService {
     private void saveOrUndo(Runnable undo) throws ValidationException {
         try {
             write();
-        } catch (TsvFile.DataChangedException e) {
+        } catch (IOException e) { // changed on disk, or couldn't be written at all
             undo.run();
             throw new ValidationException(e.getMessage());
         }
     }
 
     /** Like save(), but hands a refused save back to the caller. */
-    private void write() throws TsvFile.DataChangedException {
+    private void write() throws IOException {
         if (dataFile == null) return;
         if (readOnly) {
             System.err.println("Not saving vehicles: " + readOnlyMessage);
@@ -215,7 +217,7 @@ public class VehicleService {
             readOnlyMessage = e.getMessage();
             throw e;
         } catch (IOException e) {
-            System.err.println("Could not save vehicles: " + e.getMessage());
+            throw new IOException("Could not save vehicles: " + e.getMessage(), e);
         }
     }
 
@@ -279,6 +281,10 @@ public class VehicleService {
             throw new ValidationException("Vehicle cannot be null");
         }
         if (isBlank(v.getVehicleId())) throw new ValidationException("Vehicle ID is required");
+        // the ID also names the photo file (images/VEH003.png), so no folders, dots or spaces
+        if (!v.getVehicleId().matches("[A-Za-z0-9-]{1,20}")) {
+            throw new ValidationException("Vehicle ID can only use letters, numbers and '-' (at most 20), e.g. VEH008");
+        }
         if (isBlank(v.getBrand())) throw new ValidationException("Brand is required");
         if (isBlank(v.getModel())) throw new ValidationException("Model is required");
         if (isBlank(v.getLicensePlate())) throw new ValidationException("License plate is required");
@@ -299,7 +305,8 @@ public class VehicleService {
         requireAdmin("add vehicles");
         requireWritable();
         validateVehicle(vehicle);
-        if (vehicles.stream().anyMatch(v -> v.getVehicleId().equals(vehicle.getVehicleId()))) {
+        // case doesn't count: on Windows VEH001.jpg and veh001.jpg are the same photo file
+        if (vehicles.stream().anyMatch(v -> v.getVehicleId().equalsIgnoreCase(vehicle.getVehicleId()))) {
             throw new ValidationException("Vehicle ID already exists");
         }
         if (plateTaken(vehicle.getLicensePlate(), null)) {
@@ -321,6 +328,13 @@ public class VehicleService {
 
         if (plateTaken(updatedVehicle.getLicensePlate(), existing)) {
             throw new ValidationException("License plate already registered");
+        }
+        // late fees use the vehicle's current daily rate and type, so they can't change under an open rental
+        boolean priceOrTypeChanged = existing.getClass() != updatedVehicle.getClass()
+                || existing.getPricePerDay().compareTo(updatedVehicle.getPricePerDay()) != 0;
+        if (priceOrTypeChanged && openBookings != null && openBookings.applyAsLong(vehicleId) > 0) {
+            throw new ValidationException("This vehicle has upcoming or active bookings, so its price and type can't be "
+                    + "changed until they are returned or cancelled. Other details can still be edited.");
         }
 
         // Store a copy of the edited vehicle in place of the old one. copy() is polymorphic, so this

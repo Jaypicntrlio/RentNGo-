@@ -4,6 +4,20 @@ A Java Swing desktop application for managing vehicle rentals.
 
 ![RentNGo admin dashboard](screenshots/02-admin-dashboard.png)
 
+## Project Category
+
+| | |
+|---|---|
+| **Project type** | Desktop GUI application (not a web or mobile app) |
+| **Category** | Car Rental Management System |
+| **Domain** | Vehicle rental and booking management (transportation / rental services) |
+| **Language & UI** | Java with Java Swing (FlatLaf look and feel) |
+| **Programming style** | Object-Oriented Programming: inheritance (`Vehicle` → `Car`, `SUV`, `Truck`; `User` → `Admin`, `Customer`), encapsulation, polymorphism and custom exceptions |
+| **Architecture** | Layered: `model` (data classes), `service` (business logic), `gui` (screens) |
+| **Data storage** | Plain text files (e.g. `vehicles.txt`), no database |
+
+In short: **a Java Swing desktop application, a Car Rental Management System built with Object-Oriented Programming.**
+
 ## Screenshots
 
 | Login | Reports |

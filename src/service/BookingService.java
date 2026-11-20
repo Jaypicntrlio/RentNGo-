@@ -309,6 +309,81 @@ public class BookingService {
         return b.getEndDate().isBefore(today) ? today.plusDays(1) : b.getEndDate();
     }
 
+    // ===== Availability calendar =====
+
+    /**
+     * Days a vehicle is taken by one open booking: from {@link #getStart()} up to, but not including,
+     * {@link #getEndExclusive()} (the return day is free for the next renter). Which booking it is, and
+     * whose, is only filled in when the logged-in user may see that booking; customers just see dates.
+     */
+    public static final class BookedPeriod {
+        private final LocalDate start;
+        private final LocalDate endExclusive;
+        private final String bookingId;
+        private final String customerId;
+        private final boolean mine;
+
+        BookedPeriod(LocalDate start, LocalDate endExclusive, String bookingId, String customerId, boolean mine) {
+            this.start = start;
+            this.endExclusive = endExclusive;
+            this.bookingId = bookingId;
+            this.customerId = customerId;
+            this.mine = mine;
+        }
+
+        public LocalDate getStart() { return start; }
+        /** The first day that is free again (the return day; tomorrow for a rental that is overdue). */
+        public LocalDate getEndExclusive() { return endExclusive; }
+        /** The booking ID, or null when the logged-in user may not see this booking. */
+        public String getBookingId() { return bookingId; }
+        /** The customer's ID, or null when the logged-in user may not see this booking. */
+        public String getCustomerId() { return customerId; }
+        /** True when it is the logged-in customer's own booking. */
+        public boolean isMine() { return mine; }
+
+        /** True when the vehicle is taken on this day (start included, end excluded). */
+        public boolean covers(LocalDate day) {
+            return !day.isBefore(start) && day.isBefore(endExclusive);
+        }
+    }
+
+    /**
+     * The open (CONFIRMED or ACTIVE) bookings of a vehicle as booked periods, oldest first, for the
+     * availability calendar. Uses exactly the same days as {@link #isVehicleAvailable}, so a range the
+     * calendar shows as free can be booked. Empty when nobody is logged in.
+     */
+    public List<BookedPeriod> getBookedPeriods(String vehicleId) {
+        User viewer = authService != null ? authService.getCurrentUser() : null;
+        if (viewer == null) return new ArrayList<>();
+        LocalDate today = LocalDate.now();
+        List<BookedPeriod> periods = new ArrayList<>();
+        for (Booking b : bookings) {
+            if (!b.getVehicleId().equals(vehicleId) || !isOpen(b)) continue;
+            boolean canSee = visible(b);
+            boolean mine = viewer instanceof Customer && viewer.getUserId().equals(b.getCustomerId());
+            periods.add(new BookedPeriod(b.getStartDate(), blockedUntil(b, today),
+                    canSee ? b.getBookingId() : null, canSee ? b.getCustomerId() : null, mine));
+        }
+        periods.sort(java.util.Comparator.comparing(BookedPeriod::getStart));
+        return periods;
+    }
+
+    /**
+     * The first day in [start, end) that one of the periods takes, or null when the whole range is
+     * free. The end (return) day itself may be booked: that is a same-day handover.
+     */
+    public static LocalDate firstBookedDay(List<BookedPeriod> periods, LocalDate start, LocalDate end) {
+        LocalDate until = end.isAfter(start) ? end : start.plusDays(1);
+        LocalDate first = null;
+        for (BookedPeriod p : periods) {
+            if (overlaps(start, until, p.getStart(), p.getEndExclusive())) {
+                LocalDate clash = p.getStart().isAfter(start) ? p.getStart() : start;
+                if (first == null || clash.isBefore(first)) first = clash;
+            }
+        }
+        return first;
+    }
+
     /** True when the vehicle is free for today, i.e. the day [today, tomorrow) (used by the vehicle tables). */
     public boolean isVehicleAvailableToday(String vehicleId) {
         LocalDate today = LocalDate.now();

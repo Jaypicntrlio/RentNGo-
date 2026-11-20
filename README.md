@@ -106,6 +106,15 @@ accounts and vehicles in it. It isn't in Git, so every fresh copy starts with th
     including a no-show (start date passed, never picked up). The screen shows the fee kept and the refund
     first; the refund is recorded as a payment, and no late fees are charged.
   - A vehicle's price and type can't change while it has upcoming or active bookings.
+- **Availability calendar**: a month calendar of the vehicle's free and booked days, beside the
+  customer's **Rent** dialog and behind **Calendar...** in the admin's Rent Vehicle screen.
+  - Click a free day to start, then click the return day: the dates are filled in. Typing dates in the
+    fields shows them on the calendar too, with "Free" or "Not available: already booked on ...".
+  - Booked days are red and struck through; a customer's own bookings are blue ("Yours"); today has a
+    gold outline. The return day may be the first day of the next booking (same-day handover).
+  - It uses exactly the same days as booking itself (`BookingService.getBookedPeriods`), so a range
+    shown as free can be booked. Customers only see the dates of other people's bookings; admins also
+    see the booking and customer IDs when hovering over a day.
 - **Returns & Payments**: Mark pick-ups and returns, automatic late fees, payments, refunds on
   cancellation, and receipts listing every payment and refund for the booking (Save as TXT).
 - **Damage checklist at pick-up and return**: **Mark Picked Up** opens a short checklist (scratches,
@@ -449,6 +458,8 @@ RentNGo/
 │   │   ├── RentVehicleFrame.java     # Admin: rent a vehicle to a customer
 │   │   ├── ReturnVehicleFrame.java   # Admin: mark picked up / return + payment
 │   │   ├── VehicleChecklistDialog.java # Admin: damage checklist at pick-up and return
+│   │   ├── AvailabilityCalendar.java # Month calendar of free/booked days; picking days fills the dates
+│   │   ├── AvailabilityCalendarDialog.java # The calendar in its own window (admin Rent Vehicle)
 │   │   ├── PaymentFrame.java         # Admin: take payments for unpaid rentals
 │   │   ├── PromoCodesFrame.java      # Admin: create and delete promo codes
 │   │   ├── PromoCodeField.java       # "Promo code + Apply" box used by both rent screens
@@ -489,6 +500,7 @@ RentNGo/
 │   │   ├── DamageChecklistTest.java  # JUnit 5: checklists saved, return needs one, damage charge + audit
 │   │   ├── BackupRestoreTest.java    # JUnit 5: backup contents, restore + undo, lock, bad backups refused
 │   │   ├── ElectricCarTest.java      # JUnit 5: EV pricing, saving, range limits, demo EVs, Reports
+│   │   ├── BookedPeriodsTest.java    # JUnit 5: calendar days match booking; customers can't see whose
 │   │   ├── DataFileRecoveryTest.java # JUnit 5: bad lines, first-run demo data, ID numbering
 │   │   ├── BookingVisibilityTest.java # JUnit 5: customers only see their own bookings
 │   │   ├── AppLockTest.java          # JUnit 5: a second copy can't lock the data folder
@@ -506,7 +518,9 @@ RentNGo/
 │   └── gui/
 │       ├── WindowSessionTest.java    # JUnit 5: closing session windows, admin session check
 │       ├── RentalRecordsExportTest.java # JUnit 5: Rental Records export is escaped
-│       └── DashboardRevenueTest.java # JUnit 5: Dashboard Revenue card equals Reports
+│       ├── DashboardRevenueTest.java # JUnit 5: Dashboard Revenue card equals Reports
+│       ├── AdminTopBarTest.java      # JUnit 5: RentNGo crest, "RentNGo" and "Admin" in the top bar
+│       └── AvailabilityCalendarClickTest.java # JUnit 5: picking dates on the calendar
 ├── run.bat                           # Windows: compile and start in one step
 ├── data/                             # Saved data (created at runtime, not in Git)
 ├── backups/                          # Backups made with Backup (created when needed, not in Git)

@@ -4,6 +4,9 @@
 # Build / output directory
 out/
 
+# VS Code's Java build output (F5 / Run)
+bin/
+
 # RentNGo saved data file (created at runtime)
 rentngo-data.txt
 

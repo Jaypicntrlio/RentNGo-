@@ -18,16 +18,20 @@ public final class CsvWriter {
     private static final byte[] UTF8_BOM = {(byte) 0xEF, (byte) 0xBB, (byte) 0xBF};
     private static final String LINE_END = "\r\n";
 
+    /** "-6500.00" or "-12": safe, since a spreadsheet reads it as a number, not a formula. */
+    private static final java.util.regex.Pattern PLAIN_NEGATIVE_NUMBER = java.util.regex.Pattern.compile("-\\d+(\\.\\d+)?");
+
     private CsvWriter() {}
 
     /**
      * One CSV field: wrapped in quotes with every {@code "} doubled. A value starting with
      * {@code = + - @}, a tab or a carriage return is prefixed with {@code '}, so spreadsheets
-     * show it as text instead of running it as a formula. Null is written as an empty field.
+     * show it as text instead of running it as a formula. A plain negative number such as
+     * {@code -6500.00} is left alone, so Excel still treats it as a number. Null is written as an empty field.
      */
     public static String escape(String value) {
         String v = value == null ? "" : value;
-        if (!v.isEmpty() && "=+-@\t\r".indexOf(v.charAt(0)) >= 0) {
+        if (!v.isEmpty() && "=+-@\t\r".indexOf(v.charAt(0)) >= 0 && !PLAIN_NEGATIVE_NUMBER.matcher(v).matches()) {
             v = "'" + v;
         }
         return "\"" + v.replace("\"", "\"\"") + "\"";

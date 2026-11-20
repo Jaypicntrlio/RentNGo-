@@ -90,6 +90,11 @@ public class ManageVehiclesFrame extends JFrame {
         deleteButton.addActionListener(e -> deleteSelected());
         buttons.add(deleteButton);
 
+        JButton maintenanceButton = UIConstants.createPurpleButton("Maintenance");
+        maintenanceButton.setToolTipText("Service history and costs of the selected vehicle");
+        maintenanceButton.addActionListener(e -> showMaintenance());
+        buttons.add(maintenanceButton);
+
         panel.add(buttons, BorderLayout.WEST);
 
         JPanel searchPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, UIConstants.SPACING_SM, 0));
@@ -114,7 +119,7 @@ public class ManageVehiclesFrame extends JFrame {
         JPanel panel = new JPanel(new BorderLayout());
         panel.setBackground(UIConstants.DARK_BG);
 
-        String[] columns = {"ID", "Brand", "Model", "Type", "Year", "Plate No.", "Price/Day", "Status", "In Service"};
+        String[] columns = {"ID", "Brand", "Model", "Type", "Year", "Plate No.", "Price/Day", "Status", "In Service", "Next Service"};
         tableModel = new DefaultTableModel(columns, 0) {
             @Override public boolean isCellEditable(int row, int column) { return false; }
         };
@@ -122,6 +127,7 @@ public class ManageVehiclesFrame extends JFrame {
         vehicleTable = UIConstants.createDarkStyledTable(tableModel);
         vehicleTable.getColumnModel().getColumn(7).setCellRenderer(new StatusRenderer());
         vehicleTable.getColumnModel().getColumn(8).setCellRenderer(new StatusRenderer());
+        vehicleTable.getColumnModel().getColumn(9).setCellRenderer(new NextServiceRenderer());
         vehicleTable.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) updatePreview();
         });
@@ -218,9 +224,48 @@ public class ManageVehiclesFrame extends JFrame {
                     v.getVehicleId(), v.getBrand(), v.getModel(), v.getType(), v.getYear(),
                     v.getLicensePlate(), String.format("\u20B1%,.2f", v.getPricePerDay()),
                     bookingService.isVehicleAvailableToday(v.getVehicleId()) ? "Available" : "Rented",
-                    v.isAvailable() ? "Yes" : "No"
+                    v.isAvailable() ? "Yes" : "No",
+                    nextServiceText(v.getVehicleId())
             });
         }
+    }
+
+    /** "2026-12-01", "2026-11-10 (due)" or "-" when no service is planned. */
+    private String nextServiceText(String vehicleId) {
+        return vehicleService.getNextServiceDate(vehicleId)
+                .map(d -> d + (d.isAfter(java.time.LocalDate.now()) ? "" : DUE_SUFFIX))
+                .orElse("-");
+    }
+
+    private static final String DUE_SUFFIX = " (due)";
+
+    private void showMaintenance() {
+        if (!WindowSession.requireAdmin(this, authService)) return;
+        int row = vehicleTable.getSelectedRow();
+        if (row == -1) {
+            JOptionPane.showMessageDialog(this, "Please select a vehicle first", "No Selection", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        String vehicleId = (String) tableModel.getValueAt(row, 0);
+        vehicleService.getVehicleById(vehicleId).ifPresent(v -> {
+            MaintenanceDialog dialog = new MaintenanceDialog(this, authService, vehicleService, v);
+            dialog.setVisible(true);
+            if (dialog.isChanged()) {
+                loadVehicles();
+                selectVehicle(vehicleId);
+            }
+        });
+    }
+
+    /** Selects the vehicle's row again after the table was reloaded. */
+    private void selectVehicle(String vehicleId) {
+        for (int i = 0; i < tableModel.getRowCount(); i++) {
+            if (vehicleId.equals(tableModel.getValueAt(i, 0))) {
+                vehicleTable.setRowSelectionInterval(i, i);
+                return;
+            }
+        }
+        updatePreview();
     }
 
     private void showVehicleDialog(Vehicle vehicle) {
@@ -270,6 +315,22 @@ public class ManageVehiclesFrame extends JFrame {
             } catch (VehicleNotFoundException | ValidationException ex) {
                 JOptionPane.showMessageDialog(this, ex.getMessage(), "Cannot Delete", JOptionPane.ERROR_MESSAGE);
             }
+        }
+    }
+
+    /** Next service date in red when it is due or overdue. */
+    private static class NextServiceRenderer extends DefaultTableCellRenderer {
+        @Override
+        public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+            Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+            setHorizontalAlignment(SwingConstants.CENTER);
+            boolean due = value != null && value.toString().endsWith(DUE_SUFFIX);
+            if (due) setText(value.toString().substring(0, value.toString().length() - DUE_SUFFIX.length()));
+            setToolTipText(due ? "Due for service" : null);
+            setFont(due ? UIConstants.FONT_BODY_BOLD : UIConstants.FONT_BODY);
+            c.setForeground(due ? UIConstants.DANGER : UIConstants.DARK_TEXT_MUTED);
+            c.setBackground(isSelected ? UIConstants.DARK_ROW_SELECTED : (row % 2 == 0 ? UIConstants.DARK_CARD : UIConstants.DARK_BG));
+            return c;
         }
     }
 

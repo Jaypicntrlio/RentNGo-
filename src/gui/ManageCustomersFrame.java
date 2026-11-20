@@ -125,7 +125,7 @@ public class ManageCustomersFrame extends JFrame {
         JPanel panel = new JPanel(new BorderLayout());
         panel.setBackground(UIConstants.DARK_BG);
 
-        String[] columns = {"ID", "Name", "Contact No.", "Email", "License No.", "Status"};
+        String[] columns = {"ID", "Name", "Contact No.", "Email", "License No.", "Status", "Points"};
         tableModel = new DefaultTableModel(columns, 0) {
             @Override public boolean isCellEditable(int row, int column) { return false; }
         };
@@ -231,7 +231,8 @@ public class ManageCustomersFrame extends JFrame {
             if (!query.isEmpty() && !haystack.contains(query)) continue;
             tableModel.addRow(new Object[]{
                     c.getUserId(), c.getFullName(), c.getPhone(), c.getEmail(), c.getLicenseNumber(),
-                    c.isActive() ? "Active" : "Inactive"
+                    c.isActive() ? "Active" : "Inactive",
+                    String.format("%,d", c.getLoyaltyPoints())
             });
         }
         updatePreview();

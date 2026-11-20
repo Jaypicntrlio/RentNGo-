@@ -47,6 +47,10 @@ public class AdminDashboardFrame extends JFrame {
         this.vehicleService = vehicleService;
         this.bookingService = bookingService;
         this.paymentService = paymentService;
+        // only ever opened for a logged-in admin; anything else is a programming mistake, not a crash later
+        if (!(authService.getCurrentUser() instanceof Admin)) {
+            throw new IllegalStateException(WindowSession.SESSION_ENDED);
+        }
         this.currentAdmin = (Admin) authService.getCurrentUser();
         initializeUI();
         showView(startView);
@@ -134,8 +138,14 @@ public class AdminDashboardFrame extends JFrame {
         sidebar.add(navButton("🔑", "Rent Vehicle", false, e -> showRentVehicle()));
         sidebar.add(navButton("🔄", "Return Vehicle", false, e -> showReturnVehicle()));
         sidebar.add(navButton("💰", "Payments", false, e -> showPayments()));
+        sidebar.add(navButton("🏷", "Promo Codes", false, e -> showPromoCodes()));
+        sidebar.add(navButton("⭐", "Reviews", false, e -> showReviews()));
         sidebar.add(navButton("📋", "Rental Records", false, e -> showRentalRecords()));
         sidebar.add(viewButton("🧾", "Audit Log", VIEW_AUDIT));
+        if (WindowSession.getBackupService() != null) {
+            sidebar.add(navButton("💾", "Backup", false, e -> backupNow()));
+            sidebar.add(navButton("♻", "Restore", false, e -> showRestore()));
+        }
 
         sidebar.add(Box.createVerticalGlue());
         JButton passwordButton = UIConstants.createSidebarButton(new UIConstants.KeyIcon(16, UIConstants.DARK_TEXT_MUTED), "Change Password", false, true);
@@ -176,23 +186,77 @@ public class AdminDashboardFrame extends JFrame {
         userPanel.add(Theme.createToggleButton(this::reopenWithCurrentTheme));
         userPanel.add(Box.createRigidArea(new Dimension(UIConstants.SPACING_SM, 0)));
 
-        userPanel.add(new JLabel(new ProfilePhotos.Avatar(currentAdmin.getUserId(), 38)));
+        // admins are shown with the RentNGo crest, not a personal photo
+        JLabel badge = new JLabel(new BrandAvatar(38));
+        userPanel.add(badge);
 
         JPanel nameBox = new JPanel();
         nameBox.setLayout(new BoxLayout(nameBox, BoxLayout.Y_AXIS));
         nameBox.setBackground(UIConstants.DARK_BG);
-        JLabel name = new JLabel(currentAdmin.getFullName());
+        String fullName = displayName(currentAdmin);
+        // the top bar shows the business, not the person: "RentNGo / Admin" for every admin account
+        JLabel name = new JLabel(BRAND_NAME);
         name.setFont(UIConstants.FONT_BODY_BOLD);
         name.setForeground(UIConstants.DARK_TEXT_PRIMARY);
-        JLabel role = new JLabel(currentAdmin.getAdminLevel());
+        // every admin account is shown simply as "Admin" (the saved admin level is kept, just not shown)
+        JLabel role = new JLabel(ADMIN_LABEL);
         role.setFont(UIConstants.FONT_SMALL);
-        role.setForeground(UIConstants.DARK_TEXT_MUTED);
+        role.setForeground(UIConstants.CREST_GOLD);
         nameBox.add(name);
         nameBox.add(role);
         userPanel.add(nameBox);
+        String tip = "Logged in as " + fullName + " (" + currentAdmin.getUsername() + "), RentNGo admin";
+        badge.setToolTipText(tip);
+        name.setToolTipText(tip);
 
         panel.add(userPanel, BorderLayout.EAST);
         return panel;
+    }
+
+    /** The role shown under the name for every admin account. */
+    static final String ADMIN_LABEL = "Admin";
+    /** The name shown in the top bar for every admin account. */
+    static final String BRAND_NAME = "RentNGo";
+
+    /** The admin's full name, or their username when no name was saved (shown in the tooltip). */
+    static String displayName(Admin admin) {
+        String fullName = admin.getFullName() == null ? "" : admin.getFullName().trim();
+        return fullName.isEmpty() ? admin.getUsername() : fullName;
+    }
+
+    /** The RentNGo crest in a round badge with a gold ring, used as the admin's profile picture. */
+    static final class BrandAvatar implements Icon {
+        private final int size;
+
+        BrandAvatar(int size) {
+            this.size = size;
+        }
+
+        @Override
+        public void paintIcon(Component c, Graphics g, int x, int y) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.translate(x, y);
+            float ring = Math.max(1.5f, size * 0.04f);
+            g2.setColor(UIConstants.DARK_CARD);
+            g2.fillOval(0, 0, size - 1, size - 1);
+            g2.setColor(UIConstants.CREST_GOLD);
+            g2.setStroke(new BasicStroke(ring));
+            g2.drawOval(Math.round(ring / 2), Math.round(ring / 2), Math.round(size - 1 - ring), Math.round(size - 1 - ring));
+            UIConstants.CrestIcon crest = new UIConstants.CrestIcon(Math.round(size * 0.62f));
+            crest.paintIcon(c, g2, (size - crest.getIconWidth()) / 2, (size - crest.getIconHeight()) / 2);
+            g2.dispose();
+        }
+
+        @Override
+        public int getIconWidth() {
+            return size;
+        }
+
+        @Override
+        public int getIconHeight() {
+            return size;
+        }
     }
 
     private void showManageVehicles() {
@@ -215,9 +279,35 @@ public class AdminDashboardFrame extends JFrame {
         new PaymentFrame(this, authService, vehicleService, bookingService, paymentService).setVisible(true);
     }
 
+    private void showPromoCodes() {
+        new PromoCodesFrame(this, authService, bookingService).setVisible(true);
+    }
+
+    private void showReviews() {
+        new ReviewsFrame(this, authService, bookingService.getReviewService(), vehicleService).setVisible(true);
+    }
+
     private void showRentalRecords() {
         RentalRecordsDialog dialog = new RentalRecordsDialog(this, currentAdmin, bookingService, vehicleService, authService);
         dialog.setVisible(true);
+    }
+
+    /** Saves the whole data folder to backups/rentngo-YYYY-MM-DD-HHmm.zip. */
+    private void backupNow() {
+        if (!WindowSession.requireAdmin(this, authService)) return;
+        try {
+            java.io.File zip = WindowSession.getBackupService().backup();
+            JOptionPane.showMessageDialog(this, "Backup saved:\n" + zip.getAbsolutePath()
+                            + "\n\nUse Restore to bring this data back later.",
+                    "Backup Complete", JOptionPane.INFORMATION_MESSAGE);
+        } catch (model.exceptions.ValidationException | java.io.IOException ex) {
+            JOptionPane.showMessageDialog(this, ex.getMessage(), "Backup Failed", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void showRestore() {
+        if (!WindowSession.requireAdmin(this, authService)) return;
+        new RestoreDialog(this, authService, WindowSession.getBackupService()).setVisible(true);
     }
 
     /** Rebuilds this window after a Light/Dark switch, keeping its size, position and view. */

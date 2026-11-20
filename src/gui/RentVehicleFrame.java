@@ -27,6 +27,8 @@ public class RentVehicleFrame extends JFrame {
     private JSpinner endDateSpinner;
     private JLabel totalDaysLabel;
     private JLabel totalAmountLabel;
+    private PromoCodeField promoField;
+    private LoyaltyPointsOption pointsOption;
     private JLabel pricePerDayLabel;
     private JLabel plateLabel;
     private JLabel typeLabel;
@@ -90,6 +92,10 @@ public class RentVehicleFrame extends JFrame {
             customerCombo.addItem(new ComboItem(c.getUserId(), c.getUserId() + " - " + c.getFullName()));
         }
         styleCombo(customerCombo);
+        customerCombo.addActionListener(e -> {
+            if (promoField != null) promoField.reset(); // a code is checked per customer
+            updateTotal(); // each customer has their own points
+        });
         gbc.gridx = 1;
         card.add(customerCombo, gbc);
 
@@ -141,9 +147,24 @@ public class RentVehicleFrame extends JFrame {
         gbc.gridx = 1;
         card.add(totalDaysLabel, gbc);
 
+        JLabel promoLabel = UIConstants.createDarkBodyLabel("Promo Code:");
+        gbc.gridx = 0; gbc.gridy = 7;
+        card.add(promoLabel, gbc);
+
+        promoField = new PromoCodeField(bookingService, this::updateTotal, () -> {
+            ComboItem c = (ComboItem) customerCombo.getSelectedItem();
+            return c == null ? null : c.id;
+        });
+        gbc.gridx = 1;
+        card.add(promoField, gbc);
+
+        pointsOption = new LoyaltyPointsOption(this::updateTotal);
+        gbc.gridx = 1; gbc.gridy = 8;
+        card.add(pointsOption, gbc);
+
         JLabel totalLabel = UIConstants.createDarkBodyLabel("Total Amount:");
         totalLabel.setFont(UIConstants.FONT_BODY_BOLD);
-        gbc.gridx = 0; gbc.gridy = 7;
+        gbc.gridx = 0; gbc.gridy = 9;
         gbc.insets = new Insets(UIConstants.SPACING_LG, UIConstants.SPACING_MD, UIConstants.SPACING_SM, UIConstants.SPACING_MD);
         card.add(totalLabel, gbc);
 
@@ -278,8 +299,16 @@ public class RentVehicleFrame extends JFrame {
             return;
         }
         java.math.BigDecimal total = v.calculateRentalCost((int) days);
+        java.math.BigDecimal discount = promoField == null ? model.Money.ZERO : promoField.discountOn(total);
+        if (pointsOption != null) {
+            ComboItem customer = (ComboItem) customerCombo.getSelectedItem();
+            pointsOption.update(customer == null ? 0 : bookingService.getLoyaltyPoints(customer.id), total.subtract(discount));
+            discount = discount.add(java.math.BigDecimal.valueOf(pointsOption.getPointsToUse()));
+        }
         totalDaysLabel.setText(String.valueOf(days));
-        totalAmountLabel.setText(String.format("\u20B1%,.2f", total));
+        totalAmountLabel.setText(String.format("\u20B1%,.2f", total.subtract(discount)));
+        totalAmountLabel.setToolTipText(discount.signum() > 0
+                ? String.format("\u20B1%,.2f before discounts of \u20B1%,.2f", total, discount) : null);
     }
 
     private LocalDate asLocalDate(JSpinner spinner) {
@@ -304,8 +333,27 @@ public class RentVehicleFrame extends JFrame {
         LocalDate start = asLocalDate(startDateSpinner);
         LocalDate end = asLocalDate(endDateSpinner);
 
+        if (promoField.hasUncheckedCode()) {
+            showError("Press Apply to check the promo code first, or clear it to rent without one.");
+            return;
+        }
+
+        // the points are the customer's: they agree by typing their own password at the counter
+        String customerPassword = null;
+        int points = pointsOption.getPointsToUse();
+        if (points > 0) {
+            JPasswordField passwordField = new JPasswordField(18);
+            Object[] message = {"Ask " + customerItem.label.replaceFirst("^\\S+ - ", "") + " to type their own password",
+                    "to use " + points + " loyalty points (-\u20B1" + points + ").", " ", passwordField};
+            int answer = JOptionPane.showConfirmDialog(this, message, "Customer Confirms Loyalty Points",
+                    JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE);
+            if (answer != JOptionPane.OK_OPTION) return;
+            customerPassword = new String(passwordField.getPassword());
+        }
+
         try {
-            bookingService.createBooking(customerItem.id, vehicle.getVehicleId(), start, end);
+            bookingService.createBooking(customerItem.id, vehicle.getVehicleId(), start, end, promoField.getCode(),
+                    points, customerPassword);
             JOptionPane.showMessageDialog(this, "Rental confirmed successfully!", "Success", JOptionPane.INFORMATION_MESSAGE);
             dispose();
         } catch (BookingException | VehicleNotFoundException ex) {

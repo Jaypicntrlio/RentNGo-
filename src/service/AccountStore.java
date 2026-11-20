@@ -20,7 +20,7 @@ import java.util.Map;
  */
 public class AccountStore {
 
-    private static final String HEADER = "RentNGo accounts - role\tid\tusername\tpasswordHash\tfullName\temail\tphone\tlicenseOrLevel\tregistered\tactive\tmustChangePassword";
+    private static final String HEADER = "RentNGo accounts - role\tid\tusername\tpasswordHash\tfullName\temail\tphone\tlicenseOrLevel\tregistered\tactive\tmustChangePassword\tloyaltyPoints";
 
     private final File file;
     private final Map<String, Integer> sequences = new HashMap<>();
@@ -108,6 +108,12 @@ public class AccountStore {
                 if (f.length > 8 && !f[8].isEmpty()) {
                     c.setRegisteredDate(LocalDate.parse(f[8]));
                 }
+                // added later: older files have no points column (0 points)
+                if (f.length > 11 && !f[11].isEmpty()) {
+                    int points = Integer.parseInt(f[11].trim());
+                    if (points < 0) throw new IllegalArgumentException("negative loyalty points " + points);
+                    c.setLoyaltyPoints(points);
+                }
                 user = c;
                 break;
             default:
@@ -140,7 +146,8 @@ public class AccountStore {
                     ? ((Customer) u).getRegisteredDate().toString() : "";
             rows.add(new String[]{u.getRole(), u.getUserId(), u.getUsername(), u.getPassword(),
                     u.getFullName(), u.getEmail(), u.getPhone(), extra, registered, String.valueOf(u.isActive()),
-                    String.valueOf(u.isMustChangePassword())});
+                    String.valueOf(u.isMustChangePassword()),
+                    u instanceof Customer ? String.valueOf(((Customer) u).getLoyaltyPoints()) : ""});
         }
         stamp = TsvFile.write(file, HEADER, meta, rows, stamp);
     }

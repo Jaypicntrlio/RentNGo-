@@ -5,6 +5,7 @@ import model.BookingStatus;
 import model.Car;
 import model.SUV;
 import model.Truck;
+import model.Van;
 import model.Vehicle;
 import model.exceptions.BookingException;
 import org.junit.jupiter.api.BeforeEach;
@@ -154,6 +155,17 @@ class BookingServiceTest {
         @Test
         void fiveTonTruckIsNotHeavyLoad() throws Exception {
             assertMoney("10500.00", bookThreeDays(new Truck("VEH106", "Isuzu", "Elf", 2023, peso("3500"), "TRK-0002", 5.0, false)));
+        }
+
+        @Test
+        void largeVanGets10PercentSurcharge() throws Exception {
+            // 3,000 x 3 days = 9,000, plus 10% for 12 or more seats
+            assertMoney("9900.00", bookThreeDays(new Van("VEH107", "Toyota", "HiAce", 2024, peso("3000"), "VAN-0001", 12, true)));
+        }
+
+        @Test
+        void smallVanPaysTheBaseRate() throws Exception {
+            assertMoney("9000.00", bookThreeDays(new Van("VEH108", "Nissan", "Urvan", 2024, peso("3000"), "VAN-0002", 11, false)));
         }
 
         @Test

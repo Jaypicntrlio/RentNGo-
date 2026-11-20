@@ -9,6 +9,7 @@ import service.BookingService;
 import service.PaymentService;
 import service.VehicleService;
 import model.exceptions.BookingException;
+import model.exceptions.ValidationException;
 import model.exceptions.VehicleNotFoundException;
 
 import javax.swing.*;
@@ -44,6 +45,17 @@ public class CustomerDashboardFrame extends JFrame {
     private JSlider maxPriceSlider;
     private JLabel maxPriceLabel;
     private JLabel resultCountLabel;
+    private JCheckBox favoritesOnlyCheckBox;
+    private JButton favoriteButton;
+    private JLabel detailRating;
+    private JButton reviewsButton;
+    private static final int RATING_COLUMN = 9;
+    private static final String NO_RATING = "-";
+
+    // Favorites: the star column is the last column of the table model, shown first on screen
+    private static final int STAR_COLUMN = 8;
+    private static final String STAR = "\u2605";    // filled: a favorite
+    private static final String NO_STAR = "\u2606"; // outline: not a favorite
     private JTable bookingTable;
     private DefaultTableModel bookingTableModel;
     private JTabbedPane tabbedPane;
@@ -58,6 +70,7 @@ public class CustomerDashboardFrame extends JFrame {
     private JLabel totalStatLabel;
     private JLabel activeStatLabel;
     private JLabel completedStatLabel;
+    private JLabel pointsStatLabel;
 
     public CustomerDashboardFrame(Customer customer, AuthService authService, VehicleService vehicleService, BookingService bookingService, PaymentService paymentService) {
         this.authService = authService;
@@ -175,7 +188,7 @@ public class CustomerDashboardFrame extends JFrame {
 
         panel.add(createVehicleFilterBar(), BorderLayout.NORTH);
 
-        String[] columns = {"ID", "Brand", "Model", "Year", "Type", "Price/Day", "License Plate", "Details"};
+        String[] columns = {"ID", "Brand", "Model", "Year", "Type", "Price/Day", "License Plate", "Details", STAR, "Rating"};
         vehicleTableModel = new DefaultTableModel(columns, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
@@ -190,6 +203,7 @@ public class CustomerDashboardFrame extends JFrame {
         vehicleSorter = new TableRowSorter<>(vehicleTableModel);
         vehicleSorter.setComparator(3, java.util.Comparator.comparingInt(y -> Integer.parseInt(y.toString())));
         vehicleSorter.setComparator(5, java.util.Comparator.comparing(p -> parsePrice(p.toString())));
+        vehicleSorter.setComparator(RATING_COLUMN, java.util.Comparator.comparingDouble(r -> ratingValue(r.toString())));
         vehicleTable.setRowSorter(vehicleSorter);
 
         // Column widths
@@ -201,6 +215,26 @@ public class CustomerDashboardFrame extends JFrame {
         vehicleTable.getColumnModel().getColumn(5).setPreferredWidth(100);
         vehicleTable.getColumnModel().getColumn(6).setPreferredWidth(120);
         vehicleTable.getColumnModel().getColumn(7).setPreferredWidth(200);
+        vehicleTable.getColumnModel().getColumn(RATING_COLUMN).setPreferredWidth(80);
+        vehicleTable.getColumnModel().getColumn(RATING_COLUMN).setCellRenderer(new RatingRenderer());
+
+        // star column: click a star to add or remove the vehicle from your favorites
+        javax.swing.table.TableColumn starColumn = vehicleTable.getColumnModel().getColumn(STAR_COLUMN);
+        starColumn.setPreferredWidth(40);
+        starColumn.setMinWidth(40);
+        starColumn.setMaxWidth(48);
+        starColumn.setCellRenderer(new StarRenderer());
+        vehicleTable.getColumnModel().moveColumn(STAR_COLUMN, 0);
+        vehicleTable.getTableHeader().setToolTipText("Click a star to add or remove a favorite");
+        vehicleTable.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override public void mouseClicked(java.awt.event.MouseEvent e) {
+                int viewRow = vehicleTable.rowAtPoint(e.getPoint());
+                int viewColumn = vehicleTable.columnAtPoint(e.getPoint());
+                if (viewRow >= 0 && viewColumn >= 0 && vehicleTable.convertColumnIndexToModel(viewColumn) == STAR_COLUMN) {
+                    toggleFavorite((String) vehicleTableModel.getValueAt(vehicleTable.convertRowIndexToModel(viewRow), 0));
+                }
+            }
+        });
 
         JScrollPane scrollPane = UIConstants.createDarkScrollPane(vehicleTable);
         panel.add(scrollPane, BorderLayout.CENTER);
@@ -237,7 +271,8 @@ public class CustomerDashboardFrame extends JFrame {
 
         searchField = UIConstants.createDarkTextField(18);
         searchField.putClientProperty("JTextField.placeholderText", "Search brand or model");
-        searchField.setPreferredSize(new Dimension(230, UIConstants.INPUT_HEIGHT));
+        searchField.setPreferredSize(new Dimension(190, UIConstants.INPUT_HEIGHT));
+        searchField.setMinimumSize(new Dimension(150, UIConstants.INPUT_HEIGHT));
         searchField.setToolTipText("Search by brand or model");
         searchField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
             @Override public void insertUpdate(javax.swing.event.DocumentEvent e) { applyVehicleFilters(); }
@@ -250,7 +285,7 @@ public class CustomerDashboardFrame extends JFrame {
         gbc.gridx = 1;
         gbc.insets = new Insets(0, UIConstants.SPACING_SM, 0, UIConstants.SPACING_SM);
         bar.add(UIConstants.createDarkSecondaryLabel("Type"), gbc);
-        typeFilter = UIConstants.createDarkComboBox(new String[]{ALL_TYPES, "Car", "SUV", "Truck"});
+        typeFilter = UIConstants.createDarkComboBox(new String[]{ALL_TYPES, "Car", "SUV", "Truck", "Van", model.ElectricCar.CATEGORY});
         typeFilter.setPreferredSize(new Dimension(110, UIConstants.INPUT_HEIGHT));
         typeFilter.addActionListener(e -> applyVehicleFilters());
         gbc.gridx = 2;
@@ -262,7 +297,8 @@ public class CustomerDashboardFrame extends JFrame {
         bar.add(UIConstants.createDarkSecondaryLabel("Max price"), gbc);
         maxPriceSlider = new JSlider(0, PRICE_STEP, PRICE_STEP);
         maxPriceSlider.setOpaque(false);
-        maxPriceSlider.setPreferredSize(new Dimension(170, UIConstants.INPUT_HEIGHT));
+        maxPriceSlider.setPreferredSize(new Dimension(140, UIConstants.INPUT_HEIGHT));
+        maxPriceSlider.setMinimumSize(new Dimension(100, UIConstants.INPUT_HEIGHT));
         maxPriceSlider.setToolTipText("Highest price per day to show");
         maxPriceSlider.addChangeListener(e -> applyVehicleFilters());
         gbc.gridx = 4;
@@ -272,20 +308,31 @@ public class CustomerDashboardFrame extends JFrame {
         maxPriceLabel = new JLabel("Any price");
         maxPriceLabel.setFont(UIConstants.FONT_BODY_BOLD);
         maxPriceLabel.setForeground(UIConstants.DARK_TEXT_PRIMARY);
-        maxPriceLabel.setPreferredSize(new Dimension(118, UIConstants.INPUT_HEIGHT));
+        maxPriceLabel.setPreferredSize(new Dimension(104, UIConstants.INPUT_HEIGHT));
         gbc.gridx = 5;
         bar.add(maxPriceLabel, gbc);
 
         JButton clearButton = UIConstants.createButton("Clear", UIConstants.DARK_BORDER,
                 UIConstants.DARK_BUTTON_NEUTRAL, UIConstants.DARK_TEXT_PRIMARY, UIConstants.FONT_BUTTON);
         clearButton.setPreferredSize(new Dimension(76, UIConstants.INPUT_HEIGHT));
+        clearButton.setMinimumSize(clearButton.getPreferredSize());
         clearButton.addActionListener(e -> clearVehicleFilters());
         gbc.gridx = 6;
         gbc.insets = new Insets(0, 0, 0, 0);
         bar.add(clearButton, gbc);
 
-        resultCountLabel = UIConstants.createDarkSecondaryLabel(" ");
+        favoritesOnlyCheckBox = new JCheckBox(STAR + " Favorites");
+        favoritesOnlyCheckBox.setOpaque(false);
+        favoritesOnlyCheckBox.setFont(UIConstants.FONT_BODY);
+        favoritesOnlyCheckBox.setForeground(UIConstants.DARK_TEXT_PRIMARY);
+        favoritesOnlyCheckBox.setToolTipText("Show only the vehicles you starred");
+        favoritesOnlyCheckBox.addActionListener(e -> applyVehicleFilters());
         gbc.gridx = 7;
+        gbc.insets = new Insets(0, UIConstants.SPACING_MD, 0, 0);
+        bar.add(favoritesOnlyCheckBox, gbc);
+
+        resultCountLabel = UIConstants.createDarkSecondaryLabel(" ");
+        gbc.gridx = 8;
         gbc.weightx = 1;
         gbc.anchor = GridBagConstraints.EAST;
         bar.add(resultCountLabel, gbc);
@@ -296,6 +343,8 @@ public class CustomerDashboardFrame extends JFrame {
         searchField.setText("");
         typeFilter.setSelectedItem(ALL_TYPES);
         maxPriceSlider.setValue(maxPriceSlider.getMaximum());
+        favoritesOnlyCheckBox.setSelected(false);
+        applyVehicleFilters();
     }
 
     /** Shows only the rows matching the search text, type and max price, then updates the count. */
@@ -305,6 +354,7 @@ public class CustomerDashboardFrame extends JFrame {
         String type = (String) typeFilter.getSelectedItem();
         boolean anyPrice = maxPriceSlider.getValue() >= maxPriceSlider.getMaximum();
         java.math.BigDecimal maxPrice = java.math.BigDecimal.valueOf(maxPriceSlider.getValue());
+        boolean favoritesOnly = favoritesOnlyCheckBox != null && favoritesOnlyCheckBox.isSelected();
         maxPriceLabel.setText(anyPrice ? "Any price" : String.format("\u20B1%,d / day", maxPriceSlider.getValue()));
 
         vehicleSorter.setRowFilter(new RowFilter<DefaultTableModel, Integer>() {
@@ -312,6 +362,7 @@ public class CustomerDashboardFrame extends JFrame {
                 String name = (row.getStringValue(1) + " " + row.getStringValue(2)).toLowerCase();
                 if (!query.isEmpty() && !name.contains(query)) return false;
                 if (type != null && !ALL_TYPES.equals(type) && !type.equalsIgnoreCase(row.getStringValue(4))) return false;
+                if (favoritesOnly && !STAR.equals(row.getStringValue(STAR_COLUMN))) return false;
                 return anyPrice || parsePrice(row.getStringValue(5)).compareTo(maxPrice) <= 0;
             }
         });
@@ -402,6 +453,33 @@ public class CustomerDashboardFrame extends JFrame {
         detailPrice.setAlignmentX(Component.LEFT_ALIGNMENT);
         panel.add(detailPrice);
 
+        detailRating = UIConstants.createDarkSecondaryLabel("Rating: -");
+        detailRating.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(detailRating);
+
+        panel.add(Box.createRigidArea(new Dimension(0, UIConstants.SPACING_MD)));
+        favoriteButton = UIConstants.createSecondaryButton(NO_STAR + " Add to Favorites");
+        favoriteButton.setAlignmentX(Component.LEFT_ALIGNMENT);
+        favoriteButton.setEnabled(false);
+        favoriteButton.addActionListener(e -> {
+            int row = vehicleTable.getSelectedRow();
+            if (row != -1) toggleFavorite((String) vehicleTableModel.getValueAt(vehicleTable.convertRowIndexToModel(row), 0));
+        });
+        panel.add(favoriteButton);
+
+        panel.add(Box.createRigidArea(new Dimension(0, UIConstants.SPACING_SM)));
+        reviewsButton = UIConstants.createSecondaryButton("Read Reviews");
+        reviewsButton.setAlignmentX(Component.LEFT_ALIGNMENT);
+        reviewsButton.setEnabled(false);
+        reviewsButton.addActionListener(e -> {
+            int row = vehicleTable.getSelectedRow();
+            if (row == -1) return;
+            String id = (String) vehicleTableModel.getValueAt(vehicleTable.convertRowIndexToModel(row), 0);
+            vehicleService.getVehicleById(id).ifPresent(v ->
+                    new VehicleReviewsDialog(this, bookingService.getReviewService(), v).setVisible(true));
+        });
+        panel.add(reviewsButton);
+
         panel.add(Box.createVerticalGlue());
         return panel;
     }
@@ -417,8 +495,19 @@ public class CustomerDashboardFrame extends JFrame {
             detailSpecs.setText("Details: -");
             detailPrice.setText(" ");
             detailPhoto.setPhoto(null);
+            favoriteButton.setText(NO_STAR + " Add to Favorites");
+            favoriteButton.setEnabled(false);
+            detailRating.setText("Rating: -");
+            reviewsButton.setEnabled(false);
             return;
         }
+        detailRating.setText(bookingService.getReviewService().getRatingSummary(v.getVehicleId())
+                .map(s -> String.format("Rating: %s %.1f / 5 (%d review%s)", STAR, s.getAverage(), s.getCount(), s.getCount() == 1 ? "" : "s"))
+                .orElse("Rating: no reviews yet"));
+        reviewsButton.setEnabled(true);
+        boolean favorite = vehicleService.isFavorite(v.getVehicleId());
+        favoriteButton.setText(favorite ? STAR + " Remove from Favorites" : NO_STAR + " Add to Favorites");
+        favoriteButton.setEnabled(true);
         detailName.setText(v.getBrand() + " " + v.getModel() + " (" + v.getYear() + ")");
         detailType.setText("Type: " + v.getType());
         detailPlate.setText("Plate No.: " + v.getLicensePlate());
@@ -433,7 +522,7 @@ public class CustomerDashboardFrame extends JFrame {
         panel.setBackground(UIConstants.DARK_BG);
         panel.setBorder(new EmptyBorder(UIConstants.SPACING_LG, UIConstants.SPACING_LG, UIConstants.SPACING_LG, UIConstants.SPACING_LG));
 
-        String[] columns = {"Booking ID", "Vehicle", "Start Date", "End Date", "Days", "Total Cost", "Status"};
+        String[] columns = {"Booking ID", "Vehicle", "Start Date", "End Date", "Days", "Total Cost", "Status", "Your Rating"};
         bookingTableModel = new DefaultTableModel(columns, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
@@ -455,6 +544,8 @@ public class CustomerDashboardFrame extends JFrame {
         bookingTable.getColumnModel().getColumn(4).setPreferredWidth(70);
         bookingTable.getColumnModel().getColumn(5).setPreferredWidth(120);
         bookingTable.getColumnModel().getColumn(6).setPreferredWidth(130);
+        bookingTable.getColumnModel().getColumn(7).setPreferredWidth(110);
+        bookingTable.getColumnModel().getColumn(7).setCellRenderer(new RatingRenderer());
 
         JScrollPane scrollPane = UIConstants.createDarkScrollPane(bookingTable);
         panel.add(scrollPane, BorderLayout.CENTER);
@@ -465,6 +556,11 @@ public class CustomerDashboardFrame extends JFrame {
         JButton cancelButton = UIConstants.createDangerButton("Cancel Booking");
         cancelButton.addActionListener(e -> cancelSelectedBooking());
         buttonPanel.add(cancelButton);
+
+        JButton rateButton = UIConstants.createPrimaryButton(STAR + " Rate Vehicle");
+        rateButton.setToolTipText("Review a rental after the vehicle was returned");
+        rateButton.addActionListener(e -> rateSelectedBooking());
+        buttonPanel.add(rateButton);
 
         JButton refreshButton = UIConstants.createSecondaryButton("Refresh");
         refreshButton.addActionListener(e -> loadBookingHistory());
@@ -521,7 +617,7 @@ public class CustomerDashboardFrame extends JFrame {
         panel.add(infoCard, BorderLayout.NORTH);
 
         // Stats Panel
-        JPanel statsPanel = new JPanel(new GridLayout(1, 3, UIConstants.SPACING_LG, UIConstants.SPACING_LG));
+        JPanel statsPanel = new JPanel(new GridLayout(1, 4, UIConstants.SPACING_LG, UIConstants.SPACING_LG));
         statsPanel.setBackground(UIConstants.DARK_BG);
         statsPanel.setBorder(new EmptyBorder(UIConstants.SPACING_XL, 0, 0, 0));
 
@@ -531,6 +627,9 @@ public class CustomerDashboardFrame extends JFrame {
         statsPanel.add(createStatCard("Total Bookings", totalStatLabel, UIConstants.PRIMARY));
         statsPanel.add(createStatCard("Active", activeStatLabel, UIConstants.SUCCESS));
         statsPanel.add(createStatCard("Completed", completedStatLabel, UIConstants.PURPLE));
+        pointsStatLabel = new JLabel("0", SwingConstants.CENTER);
+        pointsStatLabel.setToolTipText("1 point for every \u20B1100 paid on a completed rental; use 100 points for \u20B1100 off when renting");
+        statsPanel.add(createStatCard("Loyalty Points", pointsStatLabel, UIConstants.CREST_GOLD));
         refreshProfileStats();
 
         panel.add(statsPanel, BorderLayout.CENTER);
@@ -547,6 +646,9 @@ public class CustomerDashboardFrame extends JFrame {
         totalStatLabel.setText(String.valueOf(bookings.size()));
         activeStatLabel.setText(String.valueOf(active));
         completedStatLabel.setText(String.valueOf(completed));
+        if (pointsStatLabel != null) {
+            pointsStatLabel.setText(String.format("%,d", bookingService.getLoyaltyPoints(currentCustomer.getUserId())));
+        }
     }
 
     private JPanel createRentalRecordsPanel() {
@@ -630,6 +732,8 @@ public class CustomerDashboardFrame extends JFrame {
                 .filter(v -> bookingService.isVehicleAvailableToday(v.getVehicleId()))
                 .collect(java.util.stream.Collectors.toList());
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+        java.util.Set<String> favoriteIds = vehicleService.getFavoriteVehicleIds();
+        java.util.Map<String, service.ReviewService.Summary> ratings = bookingService.getReviewService().getRatingSummaries();
         for (Vehicle v : vehicles) {
             vehicleTableModel.addRow(new Object[]{
                     v.getVehicleId(),
@@ -639,11 +743,67 @@ public class CustomerDashboardFrame extends JFrame {
                     v.getType(),
                     String.format("\u20B1%,.2f", v.getPricePerDay()),
                     v.getLicensePlate(),
-                    v.getVehicleCategory() + " - " + getVehicleDetails(v)
+                    v.getVehicleCategory() + " - " + getVehicleDetails(v),
+                    favoriteIds.contains(v.getVehicleId()) ? STAR : NO_STAR,
+                    ratings.containsKey(v.getVehicleId()) ? ratings.get(v.getVehicleId()).toString() : NO_RATING
             });
         }
         updatePriceSliderRange(vehicles);
         applyVehicleFilters();
+    }
+
+    /** Stars or unstars the vehicle for this customer (saved right away) and refreshes the table. */
+    private void toggleFavorite(String vehicleId) {
+        boolean favorite = !vehicleService.isFavorite(vehicleId);
+        try {
+            vehicleService.setFavorite(vehicleId, favorite);
+        } catch (ValidationException | VehicleNotFoundException ex) {
+            JOptionPane.showMessageDialog(this, ex.getMessage(), "Favorites", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+        for (int i = 0; i < vehicleTableModel.getRowCount(); i++) {
+            if (vehicleId.equals(vehicleTableModel.getValueAt(i, 0))) {
+                vehicleTableModel.setValueAt(favorite ? STAR : NO_STAR, i, STAR_COLUMN);
+            }
+        }
+        applyVehicleFilters();
+    }
+
+    /** "★ 4.5 (2)" -> 4.5; vehicles without reviews sort below every rated one. */
+    private static double ratingValue(String text) {
+        try {
+            return Double.parseDouble(text.substring(2, text.indexOf(' ', 2)));
+        } catch (RuntimeException e) {
+            return -1;
+        }
+    }
+
+    /** Average rating in gold; "-" (no reviews) muted. */
+    private static class RatingRenderer extends javax.swing.table.DefaultTableCellRenderer {
+        @Override
+        public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+            Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+            boolean rated = value != null && value.toString().startsWith(STAR); // "★ 4.5 (2)" or "★★★★☆"; not "-" or "Not rated"
+            c.setForeground(rated ? UIConstants.CREST_GOLD : UIConstants.DARK_TEXT_MUTED);
+            setToolTipText(rated ? "Average stars (number of reviews)" : "No reviews yet");
+            c.setBackground(isSelected ? UIConstants.DARK_ROW_SELECTED : (row % 2 == 0 ? UIConstants.DARK_CARD : UIConstants.DARK_BG));
+            return c;
+        }
+    }
+
+    /** Gold filled star for favorites, a faint outline star for the rest. */
+    private static class StarRenderer extends javax.swing.table.DefaultTableCellRenderer {
+        @Override
+        public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+            Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+            setHorizontalAlignment(SwingConstants.CENTER);
+            setFont(UIConstants.FONT_SUBHEADING);
+            boolean favorite = STAR.equals(value);
+            c.setForeground(favorite ? UIConstants.CREST_GOLD : UIConstants.DARK_TEXT_MUTED);
+            setToolTipText(favorite ? "In your favorites (click to remove)" : "Click to add to your favorites");
+            c.setBackground(isSelected ? UIConstants.DARK_ROW_SELECTED : (row % 2 == 0 ? UIConstants.DARK_CARD : UIConstants.DARK_BG));
+            return c;
+        }
     }
 
     /** "4 doors, Gasoline": each vehicle type lists its own features (polymorphism). */
@@ -668,7 +828,10 @@ public class CustomerDashboardFrame extends JFrame {
                     b.getEndDate().format(formatter),
                     b.getNumberOfDays(),
                     String.format("\u20B1%,.2f", b.getTotalCost()),
-                    b.getStatus()
+                    b.getStatus(),
+                    bookingService.getReviewService().getReviewForBooking(b.getBookingId())
+                            .map(r -> model.Review.stars(r.getRating()))
+                            .orElse(b.getStatus() == BookingStatus.COMPLETED ? "Not rated" : NO_RATING)
             });
         }
     }
@@ -713,6 +876,28 @@ public class CustomerDashboardFrame extends JFrame {
             sb.append(String.format("You're cancelling more than 24 hours ahead, so you'll get a full refund of ₱%,.2f.", refund));
         }
         return sb.append("</html>").toString();
+    }
+
+    /** Opens the review form for the selected rental, or says why it can't be reviewed yet. */
+    private void rateSelectedBooking() {
+        int row = bookingTable.getSelectedRow();
+        if (row == -1) {
+            JOptionPane.showMessageDialog(this, "Please select a rental to rate", "No Selection", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        String bookingId = (String) bookingTableModel.getValueAt(row, 0);
+        String reason = bookingService.getReviewService().whyCannotReview(bookingId);
+        if (reason != null) {
+            JOptionPane.showMessageDialog(this, reason, "Rate Vehicle", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        String vehicleName = (String) bookingTableModel.getValueAt(row, 1);
+        ReviewDialog dialog = new ReviewDialog(this, bookingService.getReviewService(), bookingId, vehicleName);
+        dialog.setVisible(true);
+        if (dialog.isSaved()) {
+            loadBookingHistory();
+            loadAvailableVehicles();
+        }
     }
 
     private void cancelSelectedBooking() {

@@ -24,12 +24,31 @@ public class AuditLog {
     public static final String BOOKING_CREATED = "BOOKING_CREATED";
     public static final String PICKED_UP = "PICKED_UP";
     public static final String RETURNED = "RETURNED";
+    /** A return whose checklist shows new damage, with the suggested and actual extra charge. */
+    public static final String DAMAGE_FOUND = "DAMAGE_FOUND";
     public static final String PAYMENT = "PAYMENT";
     public static final String CANCELLED = "BOOKING_CANCELLED";
     public static final String REFUND = "REFUND";
     public static final String VEHICLE_ADDED = "VEHICLE_ADDED";
     public static final String VEHICLE_EDITED = "VEHICLE_EDITED";
     public static final String VEHICLE_DELETED = "VEHICLE_DELETED";
+    public static final String MAINTENANCE_ADDED = "MAINTENANCE_ADDED";
+    public static final String PROMO_CODE_ADDED = "PROMO_CODE_ADDED";
+    public static final String PROMO_CODE_DELETED = "PROMO_CODE_DELETED";
+    public static final String REVIEW_ADDED = "REVIEW_ADDED";
+    public static final String REVIEW_HIDDEN = "REVIEW_HIDDEN";
+    public static final String REVIEW_SHOWN = "REVIEW_SHOWN";
+    public static final String LOYALTY_EARNED = "LOYALTY_EARNED";
+    public static final String LOYALTY_SPENT = "LOYALTY_SPENT";
+    public static final String LOYALTY_RETURNED = "LOYALTY_RETURNED";
+    public static final String LOYALTY_PENDING = "LOYALTY_PENDING";
+    public static final String PROMO_USE_RETURNED = "PROMO_USE_RETURNED";
+    public static final String PROMO_GUESSES_LOCKED = "PROMO_GUESSES_LOCKED";
+    public static final String REPORT_EXPORTED = "REPORT_EXPORTED";
+    /** The data folder was saved to a backup zip. */
+    public static final String BACKUP_CREATED = "BACKUP_CREATED";
+    /** The data folder was replaced with a backup (written to both the old and the restored log). */
+    public static final String DATA_RESTORED = "DATA_RESTORED";
     public static final String CUSTOMER_ADDED = "CUSTOMER_ADDED";
     public static final String CUSTOMER_REGISTERED = "CUSTOMER_REGISTERED";
     public static final String CUSTOMER_EDITED = "CUSTOMER_EDITED";

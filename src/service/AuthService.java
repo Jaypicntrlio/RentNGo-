@@ -181,6 +181,26 @@ public class AuthService {
         }
     }
 
+    /**
+     * Adds (positive) or takes away (negative) loyalty points and saves the accounts file. Only the
+     * booking service calls this, after its own checks; if the save fails the balance is put back.
+     */
+    void changeLoyaltyPoints(String customerId, int delta) throws ValidationException {
+        Customer customer = findCustomerRecord(customerId)
+                .orElseThrow(() -> new ValidationException("Customer not found: " + customerId));
+        int before = customer.getLoyaltyPoints();
+        if (before + delta < 0) {
+            throw new ValidationException(customer.getFullName() + " has only " + before + " loyalty points");
+        }
+        customer.setLoyaltyPoints(before + delta);
+        try {
+            persist();
+        } catch (ValidationException e) {
+            customer.setLoyaltyPoints(before);
+            throw e;
+        }
+    }
+
     /** Writes every account to the accounts file. */
     private void persist() throws ValidationException {
         if (store == null) return;
@@ -233,6 +253,33 @@ public class AuthService {
         }
         currentUser = user;
         return publicCopy(user);
+    }
+
+    /**
+     * The customer's consent before an admin spends their loyalty points: the customer types their own
+     * password at the counter. Wrong passwords count towards that customer's login lockout, so it can't
+     * be guessed. A customer still on the starting password (which the admin saw) or a demo password
+     * must log in and choose their own password first.
+     */
+    void confirmCustomerPassword(String customerId, String password) throws ValidationException {
+        Customer customer = findCustomerRecord(customerId)
+                .orElseThrow(() -> new ValidationException("Customer not found: " + customerId));
+        if (password == null || password.isEmpty()) {
+            throw new ValidationException(customer.getFullName() + " must type their own password to use their loyalty points.");
+        }
+        String key = lockKey(customer.getUsername());
+        String locked = lockMessage(key);
+        if (locked != null) throw new ValidationException(locked);
+        if (!passwordMatches(customer, password)) {
+            String nowLocked = recordFailure(key);
+            throw new ValidationException(nowLocked != null ? nowLocked
+                    : "Wrong password for " + customer.getFullName() + ". Their loyalty points weren't used.");
+        }
+        if (attempts.remove(key) != null) saveAttempts();
+        if (customer.isMustChangePassword() || isDemoPassword(password)) {
+            throw new ValidationException(customer.getFullName() + " must first log in and choose their own password "
+                    + "before their loyalty points can be used at the counter.");
+        }
     }
 
     /** True for a password printed on the login screen (unless a test run allows them). */

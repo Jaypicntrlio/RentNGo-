@@ -23,6 +23,20 @@ public class Booking {
     private LocalDateTime processedAt;
     /** Why the return was recorded with a date other than the day it was processed (or null). */
     private String returnNote;
+    /** The promo code used when booking (in capitals), or null; the discount is already taken off totalCost. */
+    private String promoCode;
+    private BigDecimal promoDiscount = Money.ZERO;
+    /** The permanent ID of the promo code used (null for none, or bookings saved before codes had IDs). */
+    private String promoId;
+    /** Loyalty points spent on this booking (1 point = ₱1 off, already taken off totalCost). */
+    private int loyaltyPointsUsed;
+    /** Points the customer earned once the rental was completed and paid (0 until then). */
+    private int loyaltyPointsEarned;
+    /** Points earned but not yet added to the account because it couldn't be saved; given at the next start. */
+    private int loyaltyPointsPending;
+    /** The damage checklists filled in at pick-up and at return (null until done, or for older bookings). */
+    private VehicleCondition pickUpCondition;
+    private VehicleCondition returnCondition;
 
     public Booking(String bookingId, String customerId, String vehicleId, LocalDate startDate, LocalDate endDate, BigDecimal totalCost) {
         this.bookingId = bookingId;
@@ -46,6 +60,14 @@ public class Booking {
         c.processedBy = processedBy;
         c.processedAt = processedAt;
         c.returnNote = returnNote;
+        c.promoCode = promoCode;
+        c.promoDiscount = promoDiscount;
+        c.promoId = promoId;
+        c.loyaltyPointsUsed = loyaltyPointsUsed;
+        c.loyaltyPointsEarned = loyaltyPointsEarned;
+        c.loyaltyPointsPending = loyaltyPointsPending;
+        c.pickUpCondition = pickUpCondition; // immutable, so sharing is safe
+        c.returnCondition = returnCondition;
         return c;
     }
 
@@ -77,8 +99,87 @@ public class Booking {
         this.endDate = endDate;
     }
 
+    /** The rental cost after any promo discount (late fees and extra charges are separate). */
     public BigDecimal getTotalCost() {
         return totalCost;
+    }
+
+    /** The promo code used for this booking, or null. */
+    public String getPromoCode() {
+        return promoCode;
+    }
+
+    /** The permanent ID of the promo code used, e.g. "PRM0002"; null without a code or for older bookings. */
+    public String getPromoId() {
+        return promoId;
+    }
+
+    public void setPromoId(String promoId) {
+        this.promoId = promoId;
+    }
+
+    /** How much the promo code took off the rental cost (0 without a code). */
+    public BigDecimal getPromoDiscount() {
+        return promoDiscount;
+    }
+
+    /** Records the code used and its discount; totalCost must already be the discounted cost. */
+    public void setPromo(String promoCode, BigDecimal promoDiscount) {
+        this.promoCode = promoCode;
+        this.promoDiscount = Money.round(promoDiscount);
+    }
+
+    /** The rental cost before the promo and loyalty point discounts. */
+    public BigDecimal getRentalCostBeforeDiscount() {
+        return totalCost.add(promoDiscount).add(getLoyaltyDiscount());
+    }
+
+    public int getLoyaltyPointsUsed() {
+        return loyaltyPointsUsed;
+    }
+
+    public void setLoyaltyPointsUsed(int loyaltyPointsUsed) {
+        this.loyaltyPointsUsed = loyaltyPointsUsed;
+    }
+
+    /** What the spent points took off: 1 point = ₱1. */
+    public BigDecimal getLoyaltyDiscount() {
+        return Money.of(loyaltyPointsUsed);
+    }
+
+    public int getLoyaltyPointsEarned() {
+        return loyaltyPointsEarned;
+    }
+
+    public void setLoyaltyPointsEarned(int loyaltyPointsEarned) {
+        this.loyaltyPointsEarned = loyaltyPointsEarned;
+    }
+
+    /** Points owed to the customer that couldn't be saved yet (0 normally). */
+    public int getLoyaltyPointsPending() {
+        return loyaltyPointsPending;
+    }
+
+    public void setLoyaltyPointsPending(int loyaltyPointsPending) {
+        this.loyaltyPointsPending = loyaltyPointsPending;
+    }
+
+    /** The checklist filled in when the customer collected the vehicle, or null. */
+    public VehicleCondition getPickUpCondition() {
+        return pickUpCondition;
+    }
+
+    public void setPickUpCondition(VehicleCondition pickUpCondition) {
+        this.pickUpCondition = pickUpCondition;
+    }
+
+    /** The checklist filled in when the vehicle came back, or null. */
+    public VehicleCondition getReturnCondition() {
+        return returnCondition;
+    }
+
+    public void setReturnCondition(VehicleCondition returnCondition) {
+        this.returnCondition = returnCondition;
     }
 
     public void setTotalCost(BigDecimal totalCost) {

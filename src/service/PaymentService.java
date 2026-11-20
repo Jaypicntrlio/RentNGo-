@@ -48,6 +48,8 @@ public class PaymentService {
         this.stamp = dataFile == null ? null : TsvFile.stampOrNull(dataFile);
         this.payments = new ArrayList<>();
         this.paymentCounter = 1;
+        // every cancellation, wherever it starts, comes here so its refund is recorded as a payment
+        bookingService.useCanceller(this::cancelBooking);
         if (dataFile != null && dataFile.isFile()) {
             try {
                 load();
@@ -199,6 +201,7 @@ public class PaymentService {
         bookingService.getAuditLog().record(AuditLog.PAYMENT, bookingId, paymentId + " " + BookingService.peso(amount)
                 + " by " + method + ", received " + BookingService.peso(amountPaid)
                 + ", change " + BookingService.peso(payment.getChange()));
+        bookingService.awardLoyaltyPointsIfDue(bookingId); // a completed rental paid in full earns its points now
         return payment;
     }
 
@@ -247,6 +250,16 @@ public class PaymentService {
     /** As above, with the reason required when the return date isn't today (see BookingService.returnBooking). */
     public Payment completeReturn(String bookingId, java.time.LocalDate returnDate, BigDecimal additionalCharge, String returnNote,
                                   String method, BigDecimal amountReceived) throws ValidationException, BookingException {
+        return completeReturn(bookingId, returnDate, additionalCharge, returnNote, null, method, amountReceived);
+    }
+
+    /**
+     * As above, with the damage checklist filled in when the vehicle came back (required when one
+     * was filled in at pick-up). The Return Vehicle screen uses this one.
+     */
+    public Payment completeReturn(String bookingId, java.time.LocalDate returnDate, BigDecimal additionalCharge, String returnNote,
+                                  model.VehicleCondition returnCondition, String method, BigDecimal amountReceived)
+            throws ValidationException, BookingException {
         requireAdmin("record returns");
         String blocked = blockedMessage();
         if (blocked != null) {
@@ -265,7 +278,7 @@ public class PaymentService {
         }
 
         Booking before = booking.copy();
-        bookingService.returnBooking(bookingId, returnDate, additionalCharge, returnNote);
+        bookingService.returnBooking(bookingId, returnDate, additionalCharge, returnNote, returnCondition);
         Booking returned = bookingService.find(bookingId).orElseThrow();
         if (!Money.isPositive(returned.getBalanceDue())) {
             return null;
@@ -281,14 +294,18 @@ public class PaymentService {
         }
     }
 
-    /** Cancels the booking and records a refund payment for anything that had been paid. */
+    /**
+     * Cancels the booking and records a refund payment for anything that had been paid; then gives
+     * back its promo code use and loyalty points. Used by the customer's Cancel Booking and the
+     * admin's Return Vehicle → Cancel Booking (e.g. for a no-show).
+     */
     public BigDecimal cancelBooking(String bookingId) throws BookingException {
         String blocked = blockedMessage();
         if (blocked != null) {
             throw new BookingException(blocked);
         }
         Booking before = bookingService.find(bookingId).map(Booking::copy).orElse(null);
-        BigDecimal refund = bookingService.cancelBooking(bookingId); // throws (and changes nothing) if not saved
+        BigDecimal refund = bookingService.cancelAndMarkRefund(bookingId); // throws (and changes nothing) if not saved
         if (Money.isPositive(refund)) {
             Booking booking = bookingService.find(bookingId).orElseThrow();
             String paymentId = ID_PREFIX + String.format("%04d", paymentCounter++);
@@ -308,6 +325,8 @@ public class PaymentService {
             bookingService.getAuditLog().record(AuditLog.REFUND, bookingId, paymentId + " refunded "
                     + BookingService.peso(refund) + " to customer " + booking.getCustomerId());
         }
+        // only now, with the cancellation and refund both saved: an undone cancellation keeps its discounts
+        bookingService.giveBackDiscounts(bookingId);
         return refund;
     }
 

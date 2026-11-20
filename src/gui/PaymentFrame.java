@@ -292,6 +292,10 @@ public class PaymentFrame extends JFrame {
             dispose();
             // the booking shown here is a copy from before the payment: fetch it again for the receipt
             Booking updated = bookingService.getBookingById(booking.getBookingId()).orElse(booking);
+            String pointsWarning = bookingService.getLoyaltyPointsWarning(booking.getBookingId());
+            if (pointsWarning != null) {
+                JOptionPane.showMessageDialog(getOwner(), pointsWarning, "Loyalty Points Not Saved Yet", JOptionPane.WARNING_MESSAGE);
+            }
             new ReceiptDialog(getOwner(), updated, paymentService.getPaymentsByBookingId(booking.getBookingId()), payment,
                     customerLabel.getText(), vehicle).setVisible(true);
         } catch (ValidationException ex) {

@@ -54,7 +54,8 @@ class RentalRecordsExportTest {
         String text = new String(bytes, 3, bytes.length - 3, StandardCharsets.UTF_8);
         List<List<String>> rows = service.CsvWriterTest.parse(text);
 
-        assertEquals(List.of("Rental ID", "Customer", "Vehicle", "Start Date", "End Date", "Total Amount", "Status"), rows.get(0));
+        assertEquals(List.of("Rental ID", "Customer", "Vehicle", "Start Date", "End Date", "Total Amount",
+                "Pick-up Condition", "Return Condition", "Status"), rows.get(0));
         assertEquals("'" + formulaName, rows.get(1).get(1), "the formula is turned into text");
         assertEquals("Juan \"JR\" Cruz, Sr.", rows.get(2).get(1), "quotes and the comma survive");
         assertEquals("₱5,000.00", rows.get(1).get(5));

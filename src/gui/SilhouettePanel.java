@@ -14,7 +14,7 @@ import java.awt.image.BufferedImage;
 public class SilhouettePanel extends JPanel {
 
     public enum Kind {
-        CAR, SUV, TRUCK, PERSON;
+        CAR, SUV, TRUCK, VAN, EV, PERSON;
 
         /** The picture for a vehicle, chosen from the vehicle's own category ("Car" -> CAR). */
         public static Kind of(Vehicle v) {
@@ -178,12 +178,25 @@ public class SilhouettePanel extends JPanel {
         g2.setColor(Color.WHITE);
         g2.fillOval(bodyX + bodyW - 16, bodyY + bodyH / 2 - 5, 10, 10);
 
+        if (kind == Kind.EV) {
+            drawBolt(g2, bodyX + bodyW / 2, bodyY + bodyH / 2, (int) (bodyH * 0.8));
+        }
+
         // type label
         String label = kind.name();
         g2.setFont(UIConstants.FONT_SMALL);
         g2.setColor(UIConstants.TEXT_MUTED);
         FontMetrics fm = g2.getFontMetrics();
         g2.drawString(label, (w - fm.stringWidth(label)) / 2, h - 10);
+    }
+
+    /** A lightning bolt centred on (cx, cy), marking an electric car. */
+    private static void drawBolt(Graphics2D g2, int cx, int cy, int size) {
+        double s = size / 10.0;
+        int[] xs = {(int) (cx + 1 * s), (int) (cx - 3 * s), (int) (cx - 0.2 * s), (int) (cx - 1.5 * s), (int) (cx + 3 * s), (int) (cx + 0.2 * s)};
+        int[] ys = {(int) (cy - 5 * s), (int) (cy + 0.8 * s), (int) (cy + 0.8 * s), (int) (cy + 5 * s), (int) (cy - 1 * s), (int) (cy - 1 * s)};
+        g2.setColor(new Color(255, 214, 10));
+        g2.fillPolygon(xs, ys, xs.length);
     }
 
     private void drawPerson(Graphics2D g2, int w, int h) {

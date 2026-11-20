@@ -139,7 +139,7 @@ class AccessControlTest {
                     assertThrows(ValidationException.class, () -> vehicles.setVehicleImage("VEH003", "x.png")))) {
                 assertTrue(e.getMessage().startsWith(denied), e.getMessage());
             }
-            assertEquals(7, vehicles.getAllVehicles().size());
+            assertEquals(9, vehicles.getAllVehicles().size());
             assertMoney("3500.00", vehicles.getVehicleById("VEH004").orElseThrow().getPricePerDay());
             assertTrue(vehicles.getVehicleById("VEH003").orElseThrow().isAvailable());
         }
@@ -232,7 +232,7 @@ class AccessControlTest {
             vehicles.getVehicleById("VEH001").orElseThrow().setPricePerDay(Money.of(1));
             vehicles.getAllVehicles().forEach(v -> v.setAvailable(false));
             assertMoney("2500.00", vehicles.getVehicleById("VEH001").orElseThrow().getPricePerDay());
-            assertEquals(7, vehicles.getInServiceVehicles().size());
+            assertEquals(9, vehicles.getInServiceVehicles().size());
 
             asAdmin();
             User me = auth.getCurrentUser();

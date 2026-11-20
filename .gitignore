@@ -10,6 +10,9 @@ rentngo-data.txt
 # RentNGo saved data (accounts with password hashes, vehicles, bookings, payments)
 data/
 
+# Backups of data/ made by Backup/Restore (they hold the same private data)
+backups/
+
 # Uploaded profile photos
 images/profiles/
 

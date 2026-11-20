@@ -6,7 +6,7 @@ import java.math.BigDecimal;
 import java.util.List;
 
 /**
- * A vehicle that can be rented. Each subclass (Car, SUV, Truck) answers the questions that differ
+ * A vehicle that can be rented. Each subclass (Car, SUV, Truck, Van, ElectricCar) answers the questions that differ
  * by type itself (its category, price, features, saved fields and checks), so other code never
  * needs to ask "is this a Car?".
  */
@@ -73,7 +73,7 @@ public abstract class Vehicle {
     }
 
     /**
-     * "Car", "SUV" or "Truck". Always taken from the subclass, so a Car can never be labelled
+     * "Car", "SUV", "Truck", "Van" or "EV". Always taken from the subclass, so a Car can never be labelled
      * as a Truck. Same value as {@link #getVehicleCategory()}.
      */
     public final String getType() {

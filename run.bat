@@ -1,6 +1,7 @@
 @echo off
 rem Builds RentNGo and starts it. Works from any folder: double-click it, or in a terminal run  .\run.bat
 rem (inside the RentNGo folder) or  C:\Users\johnp\Documents\RentNGo\run.bat  from anywhere else.
+rem Why need it: RentNGo have many files and libraries. Normal VS Code Run compile one file only, so it fail. That the "package gui does not exist" error from before. Now VS Code Run button call run.bat.
 setlocal
 cd /d "%~dp0"
 
@@ -27,6 +28,3 @@ xcopy /e /i /y /q src\resources out\resources >nul
 
 echo Starting RentNGo...
 java --enable-native-access=ALL-UNNAMED -cp "out;lib/*" app.RentNGo
-
-
-/Why need it: RentNGo have many files and libraries. Normal VS Code Run compile one file only, so it fail. That the “package gui does not exist” error from before. Now VS Code Run button call run.bat.

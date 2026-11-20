@@ -60,7 +60,9 @@ class AppLockTest {
         String classPath = codeLocation(AppLock.class) + File.pathSeparator + codeLocation(AppLockProbe.class);
         String java = Path.of(System.getProperty("java.home"), "bin", "java").toString();
         Process process = new ProcessBuilder(java, "-cp", classPath, AppLockProbe.class.getName(), dataDir.toString())
-                .redirectErrorStream(true)
+                // only what the probe prints: Java may write notices of its own to stderr,
+                // e.g. "Picked up JAVA_TOOL_OPTIONS: ..." when that variable is set
+                .redirectError(ProcessBuilder.Redirect.DISCARD)
                 .start();
         assertTrue(process.waitFor(30, TimeUnit.SECONDS), "probe process timed out");
         return new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();

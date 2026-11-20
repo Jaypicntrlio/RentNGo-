@@ -185,6 +185,9 @@ class LoopholeFixesTest {
         File file = dataDir.resolve("bookings.txt").toFile();
         bookings.createBooking("CUS001", "VEH001", TODAY.plusDays(1), TODAY.plusDays(2)); // creates the file
         assertTrue(file.setReadOnly());
+        // root (and some admin accounts) can still write a read-only file, so there is no failed save to test
+        org.junit.jupiter.api.Assumptions.assumeFalse(java.nio.file.Files.isWritable(file.toPath()),
+                "this account can write read-only files");
 
         BookingException e = assertThrows(BookingException.class,
                 () -> bookings.createBooking("CUS002", "VEH002", TODAY.plusDays(1), TODAY.plusDays(2)));

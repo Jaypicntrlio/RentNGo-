@@ -5,6 +5,7 @@ import model.BookingStatus;
 import model.Payment;
 import model.Money;
 import model.Vehicle;
+import model.VehicleCondition;
 import service.AuthService;
 import service.BookingService;
 import service.PaymentService;
@@ -20,6 +21,7 @@ import java.awt.*;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 
 public class ReturnVehicleFrame extends JFrame {
     private final AuthService authService;
@@ -43,10 +45,16 @@ public class ReturnVehicleFrame extends JFrame {
     private JLabel statusLabel;
     private JButton pickUpButton;
     private JButton confirmButton;
+    private JButton cancelBookingButton;
     private JComboBox<String> methodCombo;
     private JTextField amountReceivedField;
     private JLabel changeNote;
     private SilhouettePanel vehicleImage;
+    /** Damage checklist (feature 8): what was ticked at pick-up, and the return checklist being filled in. */
+    private JLabel pickUpConditionLabel;
+    private JButton checklistButton;
+    private JLabel checklistStatus;
+    private VehicleCondition returnChecklist;
 
     public ReturnVehicleFrame(JFrame parent, AuthService authService, VehicleService vehicleService,
                               BookingService bookingService, PaymentService paymentService) {
@@ -265,6 +273,27 @@ public class ReturnVehicleFrame extends JFrame {
         statusLabel.setBorder(new EmptyBorder(UIConstants.SPACING_SM, 0, 0, 0));
         panel.add(statusLabel);
 
+        panel.add(Box.createRigidArea(new Dimension(0, UIConstants.SPACING_LG)));
+        JLabel conditionHeading = UIConstants.createDarkSubheadingLabel("Condition");
+        conditionHeading.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(conditionHeading);
+        panel.add(Box.createRigidArea(new Dimension(0, UIConstants.SPACING_SM)));
+        pickUpConditionLabel = UIConstants.createDarkSecondaryLabel("At pick-up: -");
+        pickUpConditionLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(pickUpConditionLabel);
+        panel.add(Box.createRigidArea(new Dimension(0, UIConstants.SPACING_SM)));
+        // a return can't be confirmed until this checklist is filled in
+        checklistButton = UIConstants.createSecondaryButton("Return Checklist...");
+        checklistButton.setAlignmentX(Component.LEFT_ALIGNMENT);
+        checklistButton.setEnabled(false);
+        checklistButton.addActionListener(e -> fillReturnChecklist());
+        panel.add(checklistButton);
+        panel.add(Box.createRigidArea(new Dimension(0, UIConstants.SPACING_XS)));
+        checklistStatus = UIConstants.createDarkMutedLabel(" ");
+        checklistStatus.setFont(UIConstants.FONT_SMALL);
+        checklistStatus.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(checklistStatus);
+
         panel.add(Box.createVerticalGlue());
         return panel;
     }
@@ -287,6 +316,15 @@ public class ReturnVehicleFrame extends JFrame {
         pickUpButton.setEnabled(false);
         pickUpButton.addActionListener(e -> markPickedUp());
         panel.add(pickUpButton);
+
+        // a booking that was never picked up (e.g. a no-show) is cancelled, not "returned"
+        cancelBookingButton = UIConstants.createDangerButton("Cancel Booking");
+        cancelBookingButton.setFont(UIConstants.FONT_BUTTON_LARGE);
+        cancelBookingButton.setPreferredSize(new Dimension(180, UIConstants.BUTTON_HEIGHT_LG));
+        cancelBookingButton.setEnabled(false);
+        cancelBookingButton.setToolTipText("Cancel a booking that hasn't been picked up, e.g. a no-show");
+        cancelBookingButton.addActionListener(e -> cancelSelectedBooking());
+        panel.add(cancelBookingButton);
 
         JButton clearButton = UIConstants.createSecondaryButton("Clear");
         clearButton.setPreferredSize(new Dimension(140, UIConstants.BUTTON_HEIGHT_LG));
@@ -344,6 +382,9 @@ public class ReturnVehicleFrame extends JFrame {
             statusLabel.setText("Status: -");
             if (pickUpButton != null) pickUpButton.setEnabled(false);
             if (confirmButton != null) confirmButton.setEnabled(false);
+            if (cancelBookingButton != null) cancelBookingButton.setEnabled(false);
+            returnChecklist = null;
+            updateChecklistLabels(null);
             totalPaymentLabel.setText("\u20B10.00");
             return;
         }
@@ -372,17 +413,73 @@ public class ReturnVehicleFrame extends JFrame {
         if (pickUpButton != null) {
             pickUpButton.setEnabled(booking.getStatus() == BookingStatus.CONFIRMED);
         }
+        if (cancelBookingButton != null) {
+            cancelBookingButton.setEnabled(booking.getStatus() == BookingStatus.CONFIRMED);
+        }
         if (confirmButton != null) {
             // only picked-up (ACTIVE) rentals can be returned; use Mark Picked Up first
             boolean active = booking.getStatus() == BookingStatus.ACTIVE;
             confirmButton.setEnabled(active);
             confirmButton.setToolTipText(active ? null : "Mark the vehicle as picked up first");
         }
+        returnChecklist = null; // each rental gets its own checklist
+        updateChecklistLabels(booking);
         startLabel.setText(booking.getStartDate().format(fmt));
         expectedEndLabel.setText(booking.getEndDate().format(fmt));
         returnDateSpinner.setValue(java.sql.Date.valueOf(LocalDate.now()));
         additionalChargeField.setText("0");
         reasonField.setText("");
+        updateTotalPayment();
+    }
+
+    /** Shows the pick-up checklist and whether the return checklist is done. */
+    private void updateChecklistLabels(Booking booking) {
+        if (pickUpConditionLabel == null) return;
+        boolean active = booking != null && booking.getStatus() == BookingStatus.ACTIVE;
+        checklistButton.setEnabled(active);
+        if (booking == null || booking.getStatus() != BookingStatus.ACTIVE) {
+            pickUpConditionLabel.setText(booking == null ? "At pick-up: -" : "Checklist is filled in at pick-up");
+            checklistStatus.setText(" ");
+            return;
+        }
+        VehicleCondition before = booking.getPickUpCondition();
+        pickUpConditionLabel.setText(wrap("At pick-up: " + (before == null ? "not recorded" : before.summary())));
+        if (returnChecklist == null) {
+            checklistStatus.setText("Return checklist: required");
+            checklistStatus.setForeground(UIConstants.WARNING);
+            return;
+        }
+        List<String> problems = VehicleCondition.newProblems(before, returnChecklist);
+        checklistStatus.setText(wrap("Return checklist: done · " + (problems.isEmpty()
+                ? (before == null ? returnChecklist.summary() : "no new damage") : String.join(", ", problems))));
+        checklistStatus.setForeground(problems.isEmpty() ? UIConstants.SUCCESS : UIConstants.WARNING);
+    }
+
+    private static String wrap(String text) {
+        return "<html><div style='width:190px'>" + text.replace("&", "&amp;").replace("<", "&lt;") + "</div></html>";
+    }
+
+    /** "BKG0004 · Toyota Camry (ABC 1234)" for the checklist heading. */
+    private String describe(Booking booking) {
+        return booking.getBookingId() + " \u00B7 " + vehicleService.getVehicleById(booking.getVehicleId())
+                .map(v -> v.getBrand() + " " + v.getModel() + " (" + v.getLicensePlate() + ")").orElse(booking.getVehicleId());
+    }
+
+    /**
+     * Opens the return checklist. New damage since pick-up fills in the additional charge with the
+     * suggested amount, which the admin can still change.
+     */
+    private void fillReturnChecklist() {
+        Booking booking = selectedBooking();
+        if (booking == null || booking.getStatus() != BookingStatus.ACTIVE) return;
+        VehicleCondition filled = VehicleChecklistDialog.showDialog(this, true, booking.getPickUpCondition(), describe(booking));
+        if (filled == null) return; // cancelled: keep what was there
+        returnChecklist = filled;
+        BigDecimal suggested = VehicleCondition.suggestedCharge(booking.getPickUpCondition(), filled);
+        if (Money.isPositive(suggested)) {
+            additionalChargeField.setText(suggested.toPlainString());
+        }
+        updateChecklistLabels(booking);
         updateTotalPayment();
     }
 
@@ -408,6 +505,17 @@ public class ReturnVehicleFrame extends JFrame {
         Booking booking = selectedBooking();
         if (booking == null) {
             totalPaymentLabel.setText("\u20B10.00");
+            return;
+        }
+        if (booking.getStatus() == BookingStatus.CONFIRMED) {
+            // never picked up: nothing to return or charge (no rental, no late fee)
+            totalPaymentLabel.setText("\u2014");
+            lateFeeNote.setText("Not picked up yet: Mark Picked Up, or Cancel Booking for a no-show");
+            lateFeeNote.setForeground(UIConstants.WARNING);
+            amountReceivedField.setText("");
+            methodCombo.setEnabled(false);
+            amountReceivedField.setEnabled(false);
+            if (changeNote != null) changeNote.setText(" ");
             return;
         }
         BigDecimal additional = chargeOrZero();
@@ -439,7 +547,7 @@ public class ReturnVehicleFrame extends JFrame {
 
     private void updateChange() {
         Booking booking = selectedBooking();
-        if (booking == null || changeNote == null) return;
+        if (booking == null || changeNote == null || booking.getStatus() == BookingStatus.CONFIRMED) return;
         BigDecimal due = bookingService.previewAmountDue(booking, selectedReturnDate(), chargeOrZero());
         if (!Money.isPositive(due)) {
             changeNote.setText("Nothing to pay \u2014 already paid in full");
@@ -499,6 +607,11 @@ public class ReturnVehicleFrame extends JFrame {
             showError("Additional charge cannot be negative");
             return;
         }
+        if (returnChecklist == null) {
+            showError("Fill in the return checklist first (Return Checklist... on the right).");
+            fillReturnChecklist();
+            return;
+        }
         LocalDate returnDate = selectedReturnDate();
         String reason = reasonField.getText().trim();
         if (!returnDate.equals(LocalDate.now()) && reason.length() < BookingService.MIN_RETURN_NOTE_LENGTH) {
@@ -516,11 +629,16 @@ public class ReturnVehicleFrame extends JFrame {
 
         try {
             Payment payment = paymentService.completeReturn(booking.getBookingId(), returnDate, additional,
-                    returnDate.equals(LocalDate.now()) ? null : reason, (String) methodCombo.getSelectedItem(), received);
+                    returnDate.equals(LocalDate.now()) ? null : reason, returnChecklist,
+                    (String) methodCombo.getSelectedItem(), received);
             Vehicle vehicle = vehicleService.getVehicleById(booking.getVehicleId()).orElse(null);
             dispose();
             // the booking shown here is a copy from before the payment: fetch it again for the receipt
             Booking updated = bookingService.getBookingById(booking.getBookingId()).orElse(booking);
+            String pointsWarning = bookingService.getLoyaltyPointsWarning(booking.getBookingId());
+            if (pointsWarning != null) {
+                JOptionPane.showMessageDialog(getOwner(), pointsWarning, "Loyalty Points Not Saved Yet", JOptionPane.WARNING_MESSAGE);
+            }
             new ReceiptDialog(getOwner(), updated, paymentService.getPaymentsByBookingId(booking.getBookingId()), payment,
                     customerLabel.getText(), vehicle).setVisible(true);
         } catch (BookingException | ValidationException ex) {
@@ -535,8 +653,10 @@ public class ReturnVehicleFrame extends JFrame {
             showError("Please select a rental");
             return;
         }
+        VehicleCondition checklist = VehicleChecklistDialog.showDialog(this, false, null, describe(booking));
+        if (checklist == null) return; // cancelled: not picked up
         try {
-            bookingService.markPickedUp(booking.getBookingId());
+            bookingService.markPickedUp(booking.getBookingId(), checklist);
             String id = booking.getBookingId();
             refreshRentals();
             for (int i = 0; i < rentalCombo.getItemCount(); i++) {
@@ -549,6 +669,51 @@ public class ReturnVehicleFrame extends JFrame {
             JOptionPane.showMessageDialog(this, "Rental " + id + " marked as picked up.", "Picked Up", JOptionPane.INFORMATION_MESSAGE);
         } catch (BookingException ex) {
             JOptionPane.showMessageDialog(this, ex.getMessage(), "Can't Mark Picked Up", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    /**
+     * Cancels the selected booking that was never picked up. Goes through PaymentService, so the
+     * refund is recorded as a payment and the promo use and points come back only once it is saved.
+     */
+    private void cancelSelectedBooking() {
+        if (!WindowSession.requireAdmin(this, authService)) return;
+        Booking booking = selectedBooking();
+        if (booking == null || booking.getStatus() != BookingStatus.CONFIRMED) {
+            showError("Please select a booking that hasn't been picked up");
+            return;
+        }
+        BigDecimal fee = bookingService.calculateCancellationFee(booking);
+        BigDecimal refund = bookingService.previewCancellationRefund(booking);
+        boolean noShow = booking.getStartDate().isBefore(LocalDate.now());
+        StringBuilder message = new StringBuilder("Cancel booking " + booking.getBookingId()
+                + (noShow ? " (no-show: the start date " + booking.getStartDate() + " has passed)" : "") + "?\n\n");
+        if (Money.isPositive(booking.getNetPaid())) {
+            message.append(String.format("Paid: \u20B1%,.2f%n", booking.getNetPaid()));
+            if (Money.isPositive(fee)) {
+                message.append(String.format("Cancellation fee kept (less than 24 hours' notice): \u20B1%,.2f%n", fee));
+            }
+            message.append(String.format("Refund to the customer: \u20B1%,.2f%n", refund));
+        } else {
+            message.append("Nothing was paid, so there is nothing to refund.\n");
+        }
+        if (booking.getPromoCode() != null) message.append("The promo code ").append(booking.getPromoCode()).append(" gets its use back.\n");
+        if (booking.getLoyaltyPointsUsed() > 0) {
+            message.append("The customer gets back ").append(booking.getLoyaltyPointsUsed()).append(" loyalty points.\n");
+        }
+        if (JOptionPane.showConfirmDialog(this, message.toString(), "Cancel Booking", JOptionPane.YES_NO_OPTION,
+                JOptionPane.WARNING_MESSAGE) != JOptionPane.YES_OPTION) {
+            return;
+        }
+        try {
+            BigDecimal refunded = paymentService.cancelBooking(booking.getBookingId());
+            refreshRentals();
+            onRentalChanged();
+            JOptionPane.showMessageDialog(this, "Booking " + booking.getBookingId() + " cancelled."
+                    + (Money.isPositive(refunded) ? String.format(" Refund recorded: \u20B1%,.2f.", refunded) : ""),
+                    "Booking Cancelled", JOptionPane.INFORMATION_MESSAGE);
+        } catch (BookingException ex) {
+            JOptionPane.showMessageDialog(this, ex.getMessage(), "Can't Cancel", JOptionPane.ERROR_MESSAGE);
         }
     }
 

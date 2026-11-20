@@ -74,7 +74,7 @@ public class CsvWriterTest {
     // ===== Formulas =====
 
     @ParameterizedTest
-    @ValueSource(strings = {"=HYPERLINK(\"http://evil\",\"x\")", "=1+1", "+63 917", "-2+3", "@SUM(A1:A9)",
+    @ValueSource(strings = {"=HYPERLINK(\"http://evil\",\"x\")", "=1+1", "+63 917", "-2+3", "-1-1", "-5e3", "@SUM(A1:A9)",
             "\t=1+1", "\r=1+1", "=cmd|' /C calc'!A0"})
     void valuesThatLookLikeFormulasGetAnApostrophe(String value) {
         String escaped = CsvWriter.escape(value);
@@ -83,7 +83,7 @@ public class CsvWriterTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"a=b", "Toyota Camry (ABC-1234)", " =1+1", "BKG0001", "2026-10-29", "₱5,000.00"})
+    @ValueSource(strings = {"a=b", "Toyota Camry (ABC-1234)", " =1+1", "BKG0001", "2026-10-29", "₱5,000.00", "-6500.00", "-12"})
     void ordinaryValuesAreNotPrefixed(String value) {
         assertEquals("\"" + value + "\"", CsvWriter.escape(value));
     }

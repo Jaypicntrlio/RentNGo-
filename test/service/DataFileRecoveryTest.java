@@ -117,7 +117,7 @@ class DataFileRecoveryTest {
         DataStore first = Stores.asAdmin(dataDir);
         assertTrue(first.getLoadProblems().isEmpty());
         assertNotNull(first.getAuthService().login("admin", "admin123"));
-        assertEquals(7, first.getVehicleService().getAllVehicles().size());
+        assertEquals(9, first.getVehicleService().getAllVehicles().size()); // 7 + the 2 demo EVs
 
         // a vehicles file that exists with only bad rows must not bring the demo fleet back
         write("vehicles.txt", "# RentNGo vehicles\nCar\tVEH001\tToyota\tCamry\tNOT-A-YEAR\t2500\tABC\ttrue\t\t4\tGas\n");

@@ -17,10 +17,8 @@ import javax.swing.border.LineBorder;
 import java.awt.*;
 import java.time.LocalDate;
 import java.time.YearMonth;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 /**
@@ -33,8 +31,11 @@ public class DashboardPanel extends JPanel {
     private final AuthService authService;
     private final BookingService bookingService;
     private final PaymentService paymentService;
+    /** Revenue is always taken from here, so the Dashboard and Reports show the same figures. */
+    private final ReportService reportService;
 
     private JPanel kpiRow;
+    private JPanel serviceDueBanner;
     private LineAreaChartPanel revenueChart;
     private BarChartPanel typeChart;
     private JPanel recentListBody;
@@ -48,6 +49,7 @@ public class DashboardPanel extends JPanel {
         this.authService = authService;
         this.bookingService = bookingService;
         this.paymentService = paymentService;
+        this.reportService = new ReportService(bookingService, vehicleService, paymentService);
         setBackground(UIConstants.DARK_BG);
         buildUI();
         refresh();
@@ -76,7 +78,15 @@ public class DashboardPanel extends JPanel {
         stack.add(Box.createRigidArea(new Dimension(0, UIConstants.SPACING_LG)));
         stack.add(listCard);
 
-        add(kpiRow, BorderLayout.NORTH);
+        // warning strip above the KPIs, shown only while some vehicle is due for service
+        serviceDueBanner = new JPanel(new BorderLayout());
+        serviceDueBanner.setVisible(false);
+        JPanel top = new JPanel(new BorderLayout(0, UIConstants.SPACING_MD));
+        top.setOpaque(false);
+        top.add(serviceDueBanner, BorderLayout.NORTH);
+        top.add(kpiRow, BorderLayout.CENTER);
+
+        add(top, BorderLayout.NORTH);
         add(stack, BorderLayout.CENTER);
     }
 
@@ -122,7 +132,7 @@ public class DashboardPanel extends JPanel {
 
     private JPanel buildTypeChartCard() {
         JPanel card = darkCard("Revenue by Vehicle Type");
-        typeChart = new BarChartPanel(new String[]{"Car", "SUV", "Truck"}, new double[3], UIConstants.DARK_ACCENT_BLUE);
+        typeChart = new BarChartPanel(ReportService.VEHICLE_TYPES, new double[ReportService.VEHICLE_TYPES.length], UIConstants.DARK_ACCENT_BLUE);
         typeChart.setDarkMode(true);
         typeChart.setPreferredSize(new Dimension(420, 220));
         card.add(typeChart, BorderLayout.CENTER);
@@ -141,10 +151,40 @@ public class DashboardPanel extends JPanel {
 
     /** Recomputes every figure from the live services and repaints the dashboard. */
     public void refresh() {
+        refreshServiceDue();
         refreshKpis();
         refreshRevenueChart();
         refreshTypeChart();
         refreshRecentRentals();
+    }
+
+    // ===== Service due warning =====
+
+    private void refreshServiceDue() {
+        serviceDueBanner.removeAll();
+        LocalDate today = LocalDate.now();
+        List<Vehicle> due = vehicleService.getVehiclesDueForService(today);
+        if (due.isEmpty()) {
+            serviceDueBanner.setVisible(false);
+            return;
+        }
+        List<String> names = due.stream()
+                .map(v -> v.getVehicleId() + " " + v.getBrand() + " " + v.getModel() + " (due "
+                        + vehicleService.getNextServiceDate(v.getVehicleId()).map(LocalDate::toString).orElse("?") + ")")
+                .collect(Collectors.toList());
+        String shown = String.join(", ", names.subList(0, Math.min(2, names.size())))
+                + (names.size() > 2 ? " +" + (names.size() - 2) + " more" : "");
+        JLabel text = new JLabel("\u26A0  Due for service: " + shown);
+        text.setFont(UIConstants.FONT_BODY_BOLD);
+        text.setForeground(Color.WHITE);
+        text.setToolTipText("<html>" + String.join("<br>", names)
+                + "<br><br>Record the service in Vehicles \u2192 Maintenance.</html>");
+        serviceDueBanner.setBackground(UIConstants.DANGER_DARK);
+        serviceDueBanner.setBorder(new EmptyBorder(UIConstants.SPACING_SM, UIConstants.SPACING_MD, UIConstants.SPACING_SM, UIConstants.SPACING_MD));
+        serviceDueBanner.add(text, BorderLayout.CENTER);
+        serviceDueBanner.setVisible(true);
+        serviceDueBanner.revalidate();
+        serviceDueBanner.repaint();
     }
 
     // ===== KPI row =====
@@ -159,10 +199,10 @@ public class DashboardPanel extends JPanel {
                 .filter(b -> b.getStatus() != BookingStatus.CANCELLED)
                 .collect(Collectors.toList());
 
-        // revenue is money received (payments minus refunds), so cancelled bookings are included
-        List<Booking> allBookings = bookingService.getAllBookings();
-        java.math.BigDecimal revenueThis = sumRevenue(allBookings, thisMonth);
-        java.math.BigDecimal revenueLast = sumRevenue(allBookings, lastMonth);
+        // revenue is money received this month (payments minus refunds, by payment date), the same
+        // figure as "Revenue This Month" in Reports
+        java.math.BigDecimal revenueThis = reportService.getRevenueForMonth(thisMonth);
+        java.math.BigDecimal revenueLast = reportService.getRevenueForMonth(lastMonth);
 
         long countThis = countInMonth(bookings, thisMonth);
         long countLast = countInMonth(bookings, lastMonth);
@@ -170,29 +210,30 @@ public class DashboardPanel extends JPanel {
         long customersThis = customersRegisteredIn(thisMonth);
         long customersLast = customersRegisteredIn(lastMonth);
 
-        java.math.BigDecimal avgThis = average(revenueThis, countThis);
-        java.math.BigDecimal avgLast = average(revenueLast, countLast);
+        // the average price of this month's rentals (not revenue divided by rentals: a rental paid
+        // last month, or not yet, would make that number wrong)
+        java.math.BigDecimal avgThis = reportService.getAverageRentalValueForMonth(thisMonth);
+        java.math.BigDecimal avgLast = reportService.getAverageRentalValueForMonth(lastMonth);
 
-        kpiRow.add(kpiCard("Revenue", String.format("\u20B1%,.2f", revenueThis), percentChange(revenueLast.doubleValue(), revenueThis.doubleValue())));
-        kpiRow.add(kpiCard("Rentals", String.valueOf(countThis), percentChange(countLast, countThis)));
+        kpiRow.add(withTip(kpiCard("Revenue", String.format("\u20B1%,.2f", revenueThis), percentChange(revenueLast.doubleValue(), revenueThis.doubleValue())),
+                "Payments received this month minus refunds, the same as Revenue This Month in Reports"));
+        kpiRow.add(withTip(kpiCard("Rentals", String.valueOf(countThis), percentChange(countLast, countThis)),
+                "Rentals starting this month (cancelled ones not counted)"));
         kpiRow.add(kpiCard("New Customers", String.valueOf(customersThis), percentChange(customersLast, customersThis)));
-        kpiRow.add(kpiCard("Avg. Rental", String.format("\u20B1%,.2f", avgThis), percentChange(avgLast.doubleValue(), avgThis.doubleValue())));
+        kpiRow.add(withTip(kpiCard("Avg. Rental", String.format("\u20B1%,.2f", avgThis), percentChange(avgLast.doubleValue(), avgThis.doubleValue())),
+                "Average price of the rentals starting this month, paid or not"));
 
         kpiRow.revalidate();
         kpiRow.repaint();
     }
 
-    private java.math.BigDecimal sumRevenue(List<Booking> bookings, YearMonth month) {
-        return bookings.stream()
-                .filter(b -> YearMonth.from(b.getStartDate()).equals(month))
-                .map(Booking::getNetPaid)
-                .reduce(model.Money.ZERO, java.math.BigDecimal::add);
-    }
-
-    private static java.math.BigDecimal average(java.math.BigDecimal total, long count) {
-        return count > 0
-                ? total.divide(java.math.BigDecimal.valueOf(count), 2, java.math.RoundingMode.HALF_UP)
-                : model.Money.ZERO;
+    /** Shows the tooltip anywhere on the card, including over its labels. */
+    private static JPanel withTip(JPanel card, String tip) {
+        card.setToolTipText(tip);
+        for (Component c : card.getComponents()) {
+            if (c instanceof JComponent) ((JComponent) c).setToolTipText(tip);
+        }
+        return card;
     }
 
     private long countInMonth(List<Booking> bookings, YearMonth month) {
@@ -238,29 +279,19 @@ public class DashboardPanel extends JPanel {
 
     private void refreshRevenueChart() {
         boolean fullYear = rangeCombo == null || "This Year".equals(rangeCombo.getSelectedItem());
-        List<Booking> bookings = bookingService.getAllBookings();
-
         YearMonth end = YearMonth.now();
         int monthsBack = fullYear ? end.getMonthValue() - 1 : 5;
         YearMonth start = end.minusMonths(monthsBack);
 
-        Map<YearMonth, Double> totals = new TreeMap<>();
-        for (YearMonth m = start; !m.isAfter(end); m = m.plusMonths(1)) {
-            totals.put(m, 0.0);
-        }
-        for (Booking b : bookings) {
-            YearMonth m = YearMonth.from(b.getStartDate());
-            if (totals.containsKey(m)) {
-                totals.put(m, totals.get(m) + b.getNetPaid().doubleValue());
-            }
-        }
+        // by payment date, like Reports: a rental paid in May for June counts in May
+        Map<YearMonth, java.math.BigDecimal> totals = reportService.getRevenueByMonth(start, end);
 
         String[] labels = new String[totals.size()];
         double[] values = new double[totals.size()];
         int i = 0;
-        for (Map.Entry<YearMonth, Double> entry : totals.entrySet()) {
+        for (Map.Entry<YearMonth, java.math.BigDecimal> entry : totals.entrySet()) {
             labels[i] = MONTHS[entry.getKey().getMonthValue() - 1];
-            values[i] = entry.getValue();
+            values[i] = entry.getValue().doubleValue();
             i++;
         }
         revenueChart.setData(labels, values);
@@ -269,17 +300,10 @@ public class DashboardPanel extends JPanel {
     // ===== Revenue by vehicle type =====
 
     private void refreshTypeChart() {
-        // Look up every vehicle's type once, then total the revenue per type in one pass over the bookings
-        // (before, each booking searched the vehicle list and copied a vehicle).
-        Map<String, String> typeById = vehicleService.getTypesById();
-        Map<String, Double> revenue = new LinkedHashMap<>();
-        for (String type : ReportService.VEHICLE_TYPES) revenue.put(type, 0.0);
-        for (Booking b : bookingService.getAllBookings()) {
-            String type = typeById.get(b.getVehicleId());
-            if (revenue.containsKey(type)) revenue.merge(type, b.getNetPaid().doubleValue(), Double::sum);
-        }
+        // all-time revenue (payments minus refunds) per vehicle type; the bars add up to Total Revenue in Reports
+        Map<String, java.math.BigDecimal> revenue = reportService.getRevenueByVehicleType();
         typeChart.setData(revenue.keySet().toArray(new String[0]),
-                revenue.values().stream().mapToDouble(Double::doubleValue).toArray());
+                revenue.values().stream().mapToDouble(java.math.BigDecimal::doubleValue).toArray());
     }
 
     // ===== Recent rentals =====

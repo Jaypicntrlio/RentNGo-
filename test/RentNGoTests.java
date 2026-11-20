@@ -42,6 +42,7 @@ public class RentNGoTests {
         run("Out-of-service vehicle can't be booked", RentNGoTests::outOfServiceCannotBeBooked);
         run("Editing a vehicle keeps or changes In Service as chosen", RentNGoTests::editSetsInService);
         run("Old saved files don't mark vehicles out of service", RentNGoTests::legacyVehicleFileLoadsInService);
+        run("A Van is saved and loaded with its seats and sliding door", RentNGoTests::vanSurvivesRestart);
         run("Only allowed status changes are accepted", RentNGoTests::statusTransitionRules);
         run("Finished bookings can't change status", RentNGoTests::finalStatusesAreFinal);
         run("Picked-up rental can be returned but not cancelled", RentNGoTests::pickedUpFlow);
@@ -123,6 +124,7 @@ public class RentNGoTests {
         w.payments.processPayment(b.getBookingId(), "CUS001", b.getBalanceDue(), "Cash", b.getBalanceDue());
         check(w.fresh(b).isPaid(), "booking should be paid");
 
+        w.bookings.markPickedUp(b.getBookingId());
         w.bookings.returnBooking(b.getBookingId(), TODAY, peso(1000));
         check(!w.fresh(b).isPaid(), "extra charge should reopen the booking");
         check(near(w.fresh(b).getBalanceDue(), peso(1000)), "balance should be the 1,000 charge, was " + w.fresh(b).getBalanceDue());
@@ -246,6 +248,7 @@ public class RentNGoTests {
     static void earlyReturnFreesDates() throws Exception {
         World w = new World();
         Booking b = w.bookings.createBooking("CUS001", "VEH006", TODAY, TODAY.plusDays(6));
+        w.bookings.markPickedUp(b.getBookingId());
         w.bookings.returnBooking(b.getBookingId(), TODAY, Money.ZERO);
         check(w.bookings.isVehicleAvailableToday("VEH006"), "vehicle should be available after return");
         w.bookings.createBooking("CUS002", "VEH006", TODAY.plusDays(1), TODAY.plusDays(3));
@@ -285,6 +288,17 @@ public class RentNGoTests {
         w.vehicles.updateVehicle("VEH001", asSuv);
         check(w.vehicles.getVehicleById("VEH001").orElseThrow() instanceof SUV, "type change should replace the object");
         check(w.vehicles.getVehicleById("VEH001").orElseThrow().isAvailable(), "type change keeps the chosen flag");
+    }
+
+    static void vanSurvivesRestart() throws Exception {
+        World w = new World();
+        w.vehicles.addVehicle(new Van("VEH300", "Toyota", "HiAce", 2024, peso(3000), "VAN-0001", 15, true));
+        w.restart();
+        Vehicle v = w.vehicles.getVehicleById("VEH300").orElseThrow();
+        check(v instanceof Van, "a saved Van should load back as a Van");
+        check(((Van) v).getSeatingCapacity() == 15, "seating capacity should be saved");
+        check(((Van) v).hasSlidingDoor(), "sliding door should be saved");
+        expectMessage(() -> w.vehicles.addVehicle(new Van("VEH301", "Nissan", "Urvan", 2024, peso(3000), "VAN-0002", 5, false)), "seating capacity");
     }
 
     static void legacyVehicleFileLoadsInService() throws Exception {
@@ -332,6 +346,7 @@ public class RentNGoTests {
             check(e.getMessage().contains("cancelled") && e.getMessage().contains("final"), "clear message expected: " + e.getMessage());
         }
         Booking done = w.bookings.createBooking("CUS001", "VEH003", TODAY, TODAY.plusDays(1));
+        w.bookings.markPickedUp(done.getBookingId());
         w.bookings.returnBooking(done.getBookingId(), TODAY, Money.ZERO);
         expectThrows(BookingException.class, () -> w.bookings.updateBookingStatus(done.getBookingId(), BookingStatus.ACTIVE));
         expectThrows(BookingException.class, () -> w.bookings.cancelBooking(done.getBookingId()));
@@ -394,7 +409,7 @@ public class RentNGoTests {
         DataStore first = new DataStore(dir, null);
         first.getAuthService().login("admin", "admin123");
         check(first.getLoadProblems().isEmpty(), "fresh start should have no problems");
-        check(first.getVehicleService().getAllVehicles().size() == 7, "demo vehicles on first run");
+        check(first.getVehicleService().getAllVehicles().size() == 9, "demo vehicles on first run");
         first.getVehicleService().deleteVehicle("VEH007", List.of());
         Customer c = first.getAuthService().registerCustomer("newbie", "secret12", "New Person", "n@x.com", "", "L9");
 

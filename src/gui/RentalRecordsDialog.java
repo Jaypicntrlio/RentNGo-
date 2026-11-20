@@ -58,7 +58,7 @@ public class RentalRecordsDialog extends JDialog {
 
     private void initializeUI() {
         UIConstants.styleDarkDialog(this, getTitle());
-        setSize(1150, 700);
+        setSize(1340, 700);
         setLocationRelativeTo(getParent());
         setLayout(new BorderLayout());
 
@@ -140,8 +140,9 @@ public class RentalRecordsDialog extends JDialog {
         panel.setBackground(UIConstants.DARK_BG);
         panel.setBorder(new EmptyBorder(UIConstants.SPACING_LG, UIConstants.SPACING_XL, 0, UIConstants.SPACING_XL));
 
-        List<String> columnNames = new java.util.ArrayList<>(List.of("Rental ID", "Customer", "Vehicle", "Start Date", "End Date", "Total Amount", "Status"));
-        List<Integer> widths = new java.util.ArrayList<>(List.of(100, 160, 200, 120, 120, 130, 130));
+        List<String> columnNames = new java.util.ArrayList<>(List.of("Rental ID", "Customer", "Vehicle", "Start Date", "End Date", "Total Amount",
+                "Pick-up Condition", "Return Condition", "Status"));
+        List<Integer> widths = new java.util.ArrayList<>(List.of(85, 130, 175, 90, 90, 105, 185, 300, 110));
         if (!showCustomerColumn) {
             // left out of the model entirely, so it can't be shown or exported
             columnNames.remove(1);
@@ -165,6 +166,17 @@ public class RentalRecordsDialog extends JDialog {
 
         // Custom renderer for Status column
         recordsTable.getColumnModel().getColumn(statusColumn).setCellRenderer(new StatusCellRenderer());
+
+        // hovering over a cell shows all of it (the condition columns can be long)
+        recordsTable.addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
+            @Override
+            public void mouseMoved(java.awt.event.MouseEvent e) {
+                int row = recordsTable.rowAtPoint(e.getPoint());
+                int col = recordsTable.columnAtPoint(e.getPoint());
+                Object value = row < 0 || col < 0 ? null : recordsTable.getValueAt(row, col);
+                recordsTable.setToolTipText(value == null ? null : value.toString());
+            }
+        });
 
         rowSorter = new TableRowSorter<>(tableModel);
         recordsTable.setRowSorter(rowSorter);
@@ -237,10 +249,25 @@ public class RentalRecordsDialog extends JDialog {
             row.add(b.getStartDate().format(formatter));
             row.add(b.getEndDate().format(formatter));
             row.add(String.format("\u20B1%,.2f", b.getTotalCost()));
+            // the two damage checklists side by side (feature 8)
+            row.add(b.getPickUpCondition() == null ? "\u2014" : b.getPickUpCondition().summary());
+            row.add(returnConditionText(b));
             row.add(b.getStatus());
             tableModel.addRow(row.toArray());
         }
         updateRecordsCount();
+    }
+
+    /** The return checklist, with anything new since pick-up first, e.g. "NEW: scratches, less fuel · 1/2 tank, clean, scratches". */
+    static String returnConditionText(Booking b) {
+        model.VehicleCondition after = b.getReturnCondition();
+        if (after == null) return "\u2014";
+        List<String> problems = new java.util.ArrayList<>();
+        for (String p : model.VehicleCondition.newProblems(b.getPickUpCondition(), after)) {
+            problems.add(p.startsWith("New ") ? p.substring(4) : p.startsWith("Fuel lower") ? "less fuel" : p.toLowerCase());
+        }
+        // new damage first, so it is seen even when the column is narrow (hover for the full text)
+        return (problems.isEmpty() ? "" : "NEW: " + String.join(", ", problems) + " \u00B7 ") + after.summary();
     }
 
     private void applyFilters() {

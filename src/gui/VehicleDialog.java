@@ -38,6 +38,10 @@ public class VehicleDialog extends JDialog {
     private JSpinner seatingSpinner;
     private JSpinner loadCapacitySpinner;
     private JCheckBox liftGateCheckBox;
+    private JSpinner vanSeatingSpinner;
+    private JCheckBox slidingDoorCheckBox;
+    private JSpinner rangeSpinner;
+    private JCheckBox fastChargingCheckBox;
 
     private SilhouettePanel photoPreview;
     private JLabel photoNameLabel;
@@ -101,7 +105,7 @@ public class VehicleDialog extends JDialog {
         gbc.gridy = 2;
         formCard.add(typeLabel, gbc);
 
-        typeComboBox = UIConstants.createDarkComboBox(new String[]{"Car", "SUV", "Truck"});
+        typeComboBox = UIConstants.createDarkComboBox(new String[]{"Car", "SUV", "Truck", "Van", ElectricCar.CATEGORY});
         typeComboBox.setPreferredSize(new Dimension(200, UIConstants.INPUT_HEIGHT));
         typeComboBox.addItemListener(this::onTypeChanged);
         gbc.gridx = 1;
@@ -290,6 +294,22 @@ public class VehicleDialog extends JDialog {
             liftGateCheckBox.setBackground(UIConstants.DARK_CARD);
             liftGateCheckBox.setFont(UIConstants.FONT_BODY);
             addSpecificField(specificFieldsPanel, "Lift Gate:", liftGateCheckBox, row++);
+        } else if ("Van".equals(type)) {
+            addSpecificField(specificFieldsPanel, "Seating Capacity:", vanSeatingSpinner = UIConstants.createDarkSpinner(new SpinnerNumberModel(12, Van.MIN_SEATS, Van.MAX_SEATS, 1)), row++);
+            slidingDoorCheckBox = new JCheckBox();
+            slidingDoorCheckBox.setBackground(UIConstants.DARK_CARD);
+            slidingDoorCheckBox.setFont(UIConstants.FONT_BODY);
+            addSpecificField(specificFieldsPanel, "Sliding Door:", slidingDoorCheckBox, row++);
+        } else if (ElectricCar.CATEGORY.equals(type)) {
+            addSpecificField(specificFieldsPanel, "Battery Range (km):", rangeSpinner = UIConstants.createDarkSpinner(
+                    new SpinnerNumberModel(400, ElectricCar.MIN_RANGE_KM, ElectricCar.MAX_RANGE_KM, 10)), row++);
+            fastChargingCheckBox = new JCheckBox();
+            fastChargingCheckBox.setBackground(UIConstants.DARK_CARD);
+            fastChargingCheckBox.setFont(UIConstants.FONT_BODY);
+            addSpecificField(specificFieldsPanel, "Fast Charging:", fastChargingCheckBox, row++);
+            JLabel ecoNote = UIConstants.createDarkMutedLabel("EVs get a 10% eco discount on every rental");
+            ecoNote.setFont(UIConstants.FONT_SMALL);
+            addSpecificField(specificFieldsPanel, "", ecoNote, row++);
         }
 
         specificFieldsPanel.revalidate();
@@ -338,6 +358,14 @@ public class VehicleDialog extends JDialog {
             Truck truck = (Truck) vehicle;
             loadCapacitySpinner.setValue(truck.getLoadCapacity());
             liftGateCheckBox.setSelected(truck.isHasLiftGate());
+        } else if (vehicle instanceof Van) {
+            Van van = (Van) vehicle;
+            vanSeatingSpinner.setValue(van.getSeatingCapacity());
+            slidingDoorCheckBox.setSelected(van.hasSlidingDoor());
+        } else if (vehicle instanceof ElectricCar) {
+            ElectricCar ev = (ElectricCar) vehicle;
+            rangeSpinner.setValue(ev.getBatteryRangeKm());
+            fastChargingCheckBox.setSelected(ev.hasFastCharging());
         }
     }
 
@@ -394,6 +422,12 @@ public class VehicleDialog extends JDialog {
             case "Truck":
                 return new Truck(vehicleId, brand, model, year, price, licensePlate,
                         (Double) loadCapacitySpinner.getValue(), liftGateCheckBox.isSelected());
+            case "Van":
+                return new Van(vehicleId, brand, model, year, price, licensePlate,
+                        (Integer) vanSeatingSpinner.getValue(), slidingDoorCheckBox.isSelected());
+            case ElectricCar.CATEGORY:
+                return new ElectricCar(vehicleId, brand, model, year, price, licensePlate,
+                        (Integer) rangeSpinner.getValue(), fastChargingCheckBox.isSelected());
             default:
                 throw new IllegalArgumentException("Unknown vehicle type: " + type);
         }

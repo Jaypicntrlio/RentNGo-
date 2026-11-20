@@ -14,8 +14,8 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Admin "Reports" view: total revenue, revenue this month, most-rented vehicle, active rentals
- * and bookings per vehicle type. Figures come from ReportService and are recomputed on refresh().
+ * Admin "Reports" view: total revenue, revenue this month, maintenance costs, most-rented vehicle,
+ * active rentals and bookings per vehicle type, with Export CSV. Figures come from ReportService and are recomputed on refresh().
  */
 public class ReportsPanel extends JPanel {
     private final ReportService reportService;
@@ -35,15 +35,32 @@ public class ReportsPanel extends JPanel {
         setLayout(new BorderLayout(0, UIConstants.SPACING_LG));
         setBorder(new EmptyBorder(UIConstants.SPACING_LG, UIConstants.SPACING_XL, UIConstants.SPACING_XL, UIConstants.SPACING_XL));
 
-        kpiRow = new JPanel(new GridLayout(1, 4, UIConstants.SPACING_LG, 0));
+        kpiRow = new JPanel(new GridLayout(2, 3, UIConstants.SPACING_LG, UIConstants.SPACING_LG));
         kpiRow.setOpaque(false);
-        add(kpiRow, BorderLayout.NORTH);
+
+        JPanel toolbar = new JPanel(new BorderLayout());
+        toolbar.setOpaque(false);
+        JLabel hint = new JLabel("Save these figures, plus revenue and maintenance for the last "
+                + ReportService.EXPORT_MONTHS + " months, as a spreadsheet");
+        hint.setFont(UIConstants.FONT_SMALL);
+        hint.setForeground(UIConstants.DARK_TEXT_MUTED);
+        toolbar.add(hint, BorderLayout.WEST);
+        JButton exportButton = UIConstants.createSuccessButton("Export CSV");
+        exportButton.setToolTipText("Save the report as a CSV file that opens in Excel");
+        exportButton.addActionListener(e -> exportCsv());
+        toolbar.add(exportButton, BorderLayout.EAST);
+
+        JPanel top = new JPanel(new BorderLayout(0, UIConstants.SPACING_MD));
+        top.setOpaque(false);
+        top.add(toolbar, BorderLayout.NORTH);
+        top.add(kpiRow, BorderLayout.CENTER);
+        add(top, BorderLayout.NORTH);
 
         JPanel typeCard = card("Bookings per Vehicle Type");
         JPanel body = new JPanel(new BorderLayout(UIConstants.SPACING_XL, 0));
         body.setOpaque(false);
 
-        typeChart = new BarChartPanel(ReportService.VEHICLE_TYPES, new double[3], UIConstants.DARK_ACCENT_BLUE);
+        typeChart = new BarChartPanel(ReportService.VEHICLE_TYPES, new double[ReportService.VEHICLE_TYPES.length], UIConstants.DARK_ACCENT_BLUE);
         typeChart.setDarkMode(true);
         typeChart.setCountValues(true);
         typeChart.setPreferredSize(new Dimension(420, 240));
@@ -56,7 +73,8 @@ public class ReportsPanel extends JPanel {
         body.add(breakdownBody, BorderLayout.EAST);
         typeCard.add(body, BorderLayout.CENTER);
 
-        JLabel note = new JLabel("Revenue is payments received minus refunds. Cancelled bookings are not counted.");
+        JLabel note = new JLabel("Revenue is payments received minus refunds. Cancelled bookings are not counted. "
+                + "Maintenance is counted by service date.");
         note.setFont(UIConstants.FONT_SMALL);
         note.setForeground(UIConstants.DARK_TEXT_MUTED);
         typeCard.add(note, BorderLayout.SOUTH);
@@ -90,13 +108,25 @@ public class ReportsPanel extends JPanel {
         kpiRow.removeAll();
         YearMonth month = YearMonth.now();
 
-        kpiRow.add(kpiCard("Total Revenue", peso(reportService.getTotalRevenue()), "All time"));
-        kpiRow.add(kpiCard("Revenue This Month", peso(reportService.getRevenueForMonth(month)),
-                month.format(DateTimeFormatter.ofPattern("MMMM yyyy"))));
+        String monthName = month.format(DateTimeFormatter.ofPattern("MMMM yyyy"));
+        java.math.BigDecimal revenue = reportService.getTotalRevenue();
+        java.math.BigDecimal maintenance = reportService.getTotalMaintenanceCost();
+
+        // row 1: all time; row 2: this month (revenue and maintenance side by side in each row)
+        kpiRow.add(kpiCard("Total Revenue", peso(revenue), "All time"));
+        kpiRow.add(kpiCard("Maintenance Cost", peso(maintenance), "All time · net after maintenance: " + peso(revenue.subtract(maintenance))));
+        addMostRentedCard();
+        kpiRow.add(kpiCard("Revenue This Month", peso(reportService.getRevenueForMonth(month)), monthName));
+        kpiRow.add(kpiCard("Maintenance This Month", peso(reportService.getMaintenanceCostForMonth(month)), monthName));
 
         long active = reportService.getActiveRentalCount();
         kpiRow.add(kpiCard("Active Rentals", String.valueOf(active), active == 1 ? "Vehicle out now" : "Vehicles out now"));
 
+        kpiRow.revalidate();
+        kpiRow.repaint();
+    }
+
+    private void addMostRentedCard() {
         Optional<ReportService.VehicleRentals> top = reportService.getMostRentedVehicle();
         if (top.isPresent()) {
             ReportService.VehicleRentals t = top.get();
@@ -105,9 +135,6 @@ public class ReportsPanel extends JPanel {
         } else {
             kpiRow.add(kpiCard("Most-Rented Vehicle", "—", "No bookings yet"));
         }
-
-        kpiRow.revalidate();
-        kpiRow.repaint();
     }
 
     private JPanel kpiCard(String label, String value, String detail) {
@@ -173,7 +200,27 @@ public class ReportsPanel extends JPanel {
         return row;
     }
 
+    /** Asks where to save, then writes the CSV (ReportService checks the admin and records it in the Audit Log). */
+    private void exportCsv() {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Export Reports to CSV");
+        chooser.setSelectedFile(new java.io.File("rentngo_report_" + java.time.LocalDate.now() + ".csv"));
+        if (chooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
+        java.io.File file = chooser.getSelectedFile();
+        if (!file.getName().toLowerCase().endsWith(".csv")) {
+            file = new java.io.File(file.getParentFile(), file.getName() + ".csv");
+        }
+        if (!FileSaving.okToWrite(this, file)) return;
+        try {
+            reportService.exportCsv(file);
+            JOptionPane.showMessageDialog(this, "Report exported to " + file.getName(), "Export Complete", JOptionPane.INFORMATION_MESSAGE);
+        } catch (java.io.IOException | model.exceptions.ValidationException ex) {
+            JOptionPane.showMessageDialog(this, "Export failed: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
     private static String peso(java.math.BigDecimal amount) {
-        return String.format("₱%,.2f", amount);
+        // "-₱1,500.00", not "₱-1,500.00"
+        return (amount.signum() < 0 ? "-" : "") + String.format("₱%,.2f", amount.abs());
     }
 }

@@ -47,28 +47,39 @@ public class RentNGo {
                 }
             }));
 
-            // Loads accounts, vehicles, bookings and payments saved in data/
-            DataStore store = new DataStore(dataDir, ProjectPaths.dir("images"));
-
-            if (!store.getLoadProblems().isEmpty()) {
-                StringBuilder message = new StringBuilder("Some saved data could not be loaded:\n\n");
-                for (String problem : store.getLoadProblems()) {
-                    message.append("• ").append(problem).append("\n\n");
-                }
-                if (store.accountsUnavailable()) {
-                    // demo accounts are never created over real ones, so there is no safe way to log in
-                    message.append("RentNGo can't start until the accounts file is fixed or restored. No files were changed.");
-                    showProblems(message.toString(), "RentNGo - Accounts Unavailable");
-                    System.exit(1);
-                    return;
-                }
-                message.append("The app will continue with the data that could be loaded.");
-                showProblems(message.toString(), "RentNGo - Data Problem");
-            }
-
-            new LoginFrame(store.getAuthService(), store.getVehicleService(),
-                    store.getBookingService(), store.getPaymentService()).setVisible(true);
+            startSession(dataDir);
         });
+    }
+
+    /**
+     * Loads the data and shows the login screen. Run at start-up, and again after Restore replaced
+     * the data (the lock on data/ is kept the whole time, so no other copy can start in between).
+     */
+    static void startSession(File dataDir) {
+        Theme.use(Theme.Mode.DARK);
+        // Loads accounts, vehicles, bookings and payments saved in data/
+        DataStore store = new DataStore(dataDir, ProjectPaths.dir("images"));
+        store.getBackupService().useAppLock(appLock);
+        gui.WindowSession.useApp(store.getBackupService(), () -> startSession(dataDir));
+
+        if (!store.getLoadProblems().isEmpty()) {
+            StringBuilder message = new StringBuilder("Some saved data could not be loaded:\n\n");
+            for (String problem : store.getLoadProblems()) {
+                message.append("• ").append(problem).append("\n\n");
+            }
+            if (store.accountsUnavailable()) {
+                // demo accounts are never created over real ones, so there is no safe way to log in
+                message.append("RentNGo can't start until the accounts file is fixed or restored. No files were changed.");
+                showProblems(message.toString(), "RentNGo - Accounts Unavailable");
+                System.exit(1);
+                return;
+            }
+            message.append("The app will continue with the data that could be loaded.");
+            showProblems(message.toString(), "RentNGo - Data Problem");
+        }
+
+        new LoginFrame(store.getAuthService(), store.getVehicleService(),
+                store.getBookingService(), store.getPaymentService()).setVisible(true);
     }
 
     /** Error dialog with a scrolling text box, since many skipped lines can be listed. */

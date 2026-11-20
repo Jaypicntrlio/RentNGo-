@@ -29,6 +29,15 @@ public class VehicleService {
     private TsvFile.Stamp stamp;
     /** How many CONFIRMED or ACTIVE bookings a vehicle has; set by BookingService, so deletes never trust the caller's list. */
     private java.util.function.ToLongFunction<String> openBookings;
+    /** Service and repair history, saved next to vehicles.txt as maintenance.txt. */
+    private final MaintenanceStore maintenance;
+    /** Each customer's starred vehicles, saved next to vehicles.txt as favorites.txt. */
+    private final FavoritesStore favorites;
+
+    /** Longest "work done" text for a maintenance record. */
+    public static final int MAX_MAINTENANCE_DESCRIPTION = 200;
+    /** Highest cost accepted for one maintenance record (catches typing mistakes such as an extra 0). */
+    public static final java.math.BigDecimal MAX_MAINTENANCE_COST = Money.of(1_000_000);
 
     /** Vehicles saved in data/vehicles.txt, photos in images/. */
     public VehicleService() {
@@ -41,6 +50,10 @@ public class VehicleService {
         this.stamp = dataFile == null ? null : TsvFile.stampOrNull(dataFile);
         this.imagesDir = imagesDir;
         this.vehicles = new ArrayList<>();
+        this.maintenance = new MaintenanceStore(dataFile == null ? null
+                : new File(dataFile.getAbsoluteFile().getParentFile(), "maintenance.txt"));
+        this.favorites = new FavoritesStore(dataFile == null ? null
+                : new File(dataFile.getAbsoluteFile().getParentFile(), "favorites.txt"));
         if (dataFile == null || !dataFile.isFile()) {
             // first run (or in-memory): start with the demo fleet
             initializeDefaultVehicles();
@@ -114,7 +127,11 @@ public class VehicleService {
 
     /** Why the saved file couldn't be (fully) loaded, or null if it loaded fine (shown at startup). */
     public String getLoadError() {
-        return loadError;
+        List<String> errors = new ArrayList<>();
+        for (String error : new String[]{loadError, maintenance.getLoadError(), favorites.getLoadError()}) {
+            if (error != null) errors.add(error);
+        }
+        return errors.isEmpty() ? null : String.join("\n\n", errors);
     }
 
     /** True when vehicles.txt couldn't be read; changes are then not saved. */
@@ -156,6 +173,12 @@ public class VehicleService {
                 break;
             case "Car":
                 v = new Car(id, brand, model, year, price, plate, Integer.parseInt(f[9]), f[10]);
+                break;
+            case "Van":
+                v = new Van(id, brand, model, year, price, plate, Integer.parseInt(f[9]), Boolean.parseBoolean(f[10]));
+                break;
+            case ElectricCar.CATEGORY: // "EV": battery range (km), fast charging
+                v = new ElectricCar(id, brand, model, year, price, plate, Integer.parseInt(f[9]), Boolean.parseBoolean(f[10]));
                 break;
             default:
                 throw new IllegalArgumentException("unknown vehicle type '" + f[0] + "'");
@@ -229,6 +252,8 @@ public class VehicleService {
         vehicles.add(new SUV("VEH005", "Jeep", "Grand Cherokee", 2023, Money.of(3800), "MNO-7890", true, 5));
         vehicles.add(new Truck("VEH006", "Ford", "F-150", 2023, Money.of(3200), "PQR-1111", 2.5, false));
         vehicles.add(new Truck("VEH007", "Chevrolet", "Silverado", 2023, Money.of(3800), "STU-2222", 3.0, true));
+        vehicles.add(new ElectricCar("VEH008", "BYD", "Atto 3", 2024, Money.of(3000), "EVB-3003", 420, true));
+        vehicles.add(new ElectricCar("VEH009", "Nissan", "Leaf", 2023, Money.of(2600), "EVN-2023", 270, false));
     }
 
     // Reads return copies: changing one never changes the stored vehicle.
@@ -257,7 +282,7 @@ public class VehicleService {
     }
 
     /**
-     * Each vehicle's type ("Car", "SUV" or "Truck") by vehicle ID. Reports use it to group many bookings
+     * Each vehicle's type ("Car", "SUV", "Truck", "Van" or "EV") by vehicle ID. Reports use it to group many bookings
      * in one pass instead of searching the vehicle list (and copying a vehicle) once per booking.
      */
     public Map<String, String> getTypesById() {
@@ -294,7 +319,7 @@ public class VehicleService {
         if (v.getYear() < MIN_YEAR || v.getYear() > maxYear()) {
             throw new ValidationException("Year must be between " + MIN_YEAR + " and " + maxYear());
         }
-        v.validateDetails(); // Car, SUV and Truck each check their own fields
+        v.validateDetails(); // Car, SUV, Truck, Van and EV each check their own fields
     }
 
     private static boolean isBlank(String s) {
@@ -396,6 +421,12 @@ public class VehicleService {
         vehicles.remove(index);
         saveOrUndo(() -> vehicles.add(index, vehicle)); // refused: the vehicle and its photos stay
         logIfSaved(AuditLog.VEHICLE_DELETED, describe(vehicle));
+        try {
+            favorites.removeVehicle(vehicleId);
+        } catch (IOException e) {
+            // the vehicle is gone either way; getFavoriteVehicleIds skips IDs that no longer exist
+            System.err.println("Could not remove " + vehicleId + " from favorites: " + e.getMessage());
+        }
         // remove its photos too, so a future vehicle given the same ID doesn't inherit them
         if (imagesDir != null) {
             for (String ext : new String[]{"jpg", "jpeg", "png"}) {
@@ -406,6 +437,150 @@ public class VehicleService {
                 deleteInsideImages(path);
             }
         }
+    }
+
+    // ===== Favorites =====
+
+    /** The logged-in customer's ID, or null when no customer is logged in. */
+    private String currentCustomerId() {
+        if (auth == null || !auth.isCustomerSession()) return null;
+        return auth.getCurrentUser().getUserId();
+    }
+
+    /** IDs of the vehicles the logged-in customer starred (deleted vehicles left out). Empty for admins. */
+    public java.util.Set<String> getFavoriteVehicleIds() {
+        String customerId = currentCustomerId();
+        java.util.Set<String> ids = new java.util.LinkedHashSet<>();
+        if (customerId == null) return ids;
+        for (String id : favorites.of(customerId)) {
+            if (find(id).isPresent()) ids.add(id);
+        }
+        return ids;
+    }
+
+    public boolean isFavorite(String vehicleId) {
+        return getFavoriteVehicleIds().contains(vehicleId);
+    }
+
+    /** Stars (true) or unstars (false) a vehicle for the logged-in customer and saves it. */
+    public void setFavorite(String vehicleId, boolean favorite) throws VehicleNotFoundException, ValidationException {
+        String customerId = currentCustomerId();
+        if (customerId == null) throw new ValidationException("Only customers can save favorite vehicles.");
+        if (favorites.isReadOnly()) throw new ValidationException(favorites.getReadOnlyMessage());
+        Vehicle vehicle = find(vehicleId)
+                .orElseThrow(() -> new VehicleNotFoundException("Vehicle not found: " + vehicleId));
+        try {
+            favorites.set(customerId, vehicle.getVehicleId(), favorite);
+        } catch (IOException e) {
+            throw new ValidationException(e.getMessage());
+        }
+    }
+
+    // ===== Maintenance history =====
+
+    /** True when an admin is logged in; maintenance figures are only shown to admins. */
+    private boolean isAdmin() {
+        return auth != null && auth.adminOnly("view maintenance") == null;
+    }
+
+    /**
+     * Saves a service or repair done on a vehicle. With {@code takeOutOfService} the vehicle is also
+     * switched out of service (so it can't be picked up) until an admin switches it back on in Edit.
+     * The record is kept even if the vehicle is deleted later, so past costs still count in Reports.
+     *
+     * @param nextServiceDate when the next service is due, or null if none is planned
+     */
+    public MaintenanceRecord addMaintenanceRecord(String vehicleId, java.time.LocalDate serviceDate, String description,
+                                                  java.math.BigDecimal cost, java.time.LocalDate nextServiceDate,
+                                                  boolean takeOutOfService)
+            throws VehicleNotFoundException, ValidationException {
+        requireAdmin("record maintenance");
+        Vehicle vehicle = find(vehicleId)
+                .orElseThrow(() -> new VehicleNotFoundException("Vehicle not found: " + vehicleId));
+        if (maintenance.isReadOnly()) throw new ValidationException(maintenance.getReadOnlyMessage());
+        if (takeOutOfService) requireWritable();
+
+        String work = description == null ? "" : description.trim();
+        if (serviceDate == null) throw new ValidationException("Service date is required");
+        if (serviceDate.isAfter(java.time.LocalDate.now())) {
+            throw new ValidationException("Service date can't be in the future");
+        }
+        if (work.isEmpty()) throw new ValidationException("Describe the work done, e.g. \"Oil change\"");
+        if (work.length() > MAX_MAINTENANCE_DESCRIPTION) {
+            throw new ValidationException("Work done can be at most " + MAX_MAINTENANCE_DESCRIPTION + " characters");
+        }
+        if (cost == null || cost.signum() < 0) throw new ValidationException("Cost can't be negative");
+        if (cost.compareTo(MAX_MAINTENANCE_COST) > 0) {
+            throw new ValidationException("Cost can be at most \u20B1" + String.format("%,.2f", MAX_MAINTENANCE_COST));
+        }
+        if (nextServiceDate != null && !nextServiceDate.isAfter(serviceDate)) {
+            throw new ValidationException("Next service date must be after the service date");
+        }
+
+        MaintenanceRecord record = new MaintenanceRecord(maintenance.nextId(), vehicle.getVehicleId(), serviceDate,
+                work, cost, nextServiceDate);
+        try {
+            maintenance.add(record);
+        } catch (IOException e) {
+            throw new ValidationException(e.getMessage());
+        }
+        audit.record(AuditLog.MAINTENANCE_ADDED, null, record.getRecordId() + " " + vehicle.getVehicleId() + ": "
+                + work + ", \u20B1" + record.getCost().toPlainString() + " on " + serviceDate
+                + (nextServiceDate == null ? "" : ", next service " + nextServiceDate));
+
+        if (takeOutOfService && vehicle.isAvailable()) {
+            vehicle.setAvailable(false);
+            try {
+                saveOrUndo(() -> vehicle.setAvailable(true));
+            } catch (ValidationException e) {
+                throw new ValidationException("The maintenance record was saved, but the vehicle could not be taken out of service: "
+                        + e.getMessage());
+            }
+            logIfSaved(AuditLog.VEHICLE_EDITED, vehicle.getVehicleId() + ": in service true -> false (maintenance "
+                    + record.getRecordId() + ")");
+        }
+        return record;
+    }
+
+    /** One vehicle's maintenance records, newest service first. Empty unless an admin is logged in. */
+    public List<MaintenanceRecord> getMaintenanceRecords(String vehicleId) {
+        return getAllMaintenanceRecords().stream()
+                .filter(r -> r.getVehicleId().equals(vehicleId))
+                .collect(Collectors.toList());
+    }
+
+    /** Every maintenance record (deleted vehicles' too), newest service first. Empty unless an admin is logged in. */
+    public List<MaintenanceRecord> getAllMaintenanceRecords() {
+        if (!isAdmin()) return new ArrayList<>();
+        List<MaintenanceRecord> all = maintenance.all();
+        all.sort(java.util.Comparator.comparing(MaintenanceRecord::getServiceDate)
+                .thenComparing(MaintenanceRecord::getRecordId).reversed());
+        return all;
+    }
+
+    /** When the vehicle's next service is due, from its latest record; empty if none is planned. */
+    public Optional<java.time.LocalDate> getNextServiceDate(String vehicleId) {
+        List<MaintenanceRecord> records = getMaintenanceRecords(vehicleId);
+        return records.isEmpty() ? Optional.empty() : Optional.ofNullable(records.get(0).getNextServiceDate());
+    }
+
+    /** Vehicles whose next service date is on or before {@code today}, most overdue first. Empty unless an admin is logged in. */
+    public List<Vehicle> getVehiclesDueForService(java.time.LocalDate today) {
+        // records come newest first, so the first one seen per vehicle is its latest
+        Map<String, MaintenanceRecord> latest = new HashMap<>();
+        for (MaintenanceRecord r : getAllMaintenanceRecords()) latest.putIfAbsent(r.getVehicleId(), r);
+        Map<String, java.time.LocalDate> due = new HashMap<>();
+        for (MaintenanceRecord r : latest.values()) {
+            if (r.getNextServiceDate() != null && !r.getNextServiceDate().isAfter(today)) {
+                due.put(r.getVehicleId(), r.getNextServiceDate());
+            }
+        }
+        return vehicles.stream()
+                .filter(v -> due.containsKey(v.getVehicleId()))
+                .sorted(java.util.Comparator.comparing((Vehicle v) -> due.get(v.getVehicleId()))
+                        .thenComparing(Vehicle::getVehicleId))
+                .map(Vehicle::copy)
+                .collect(Collectors.toList());
     }
 
     /** Deletes images/name, but only if it really is inside images/ (so "../data/accounts.txt" is left alone). */

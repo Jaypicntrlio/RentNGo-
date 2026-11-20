@@ -5,6 +5,7 @@ import model.BookingStatus;
 import model.Money;
 import model.Payment;
 import model.Vehicle;
+import model.VehicleCondition;
 
 import javax.swing.*;
 import javax.swing.border.CompoundBorder;
@@ -126,9 +127,19 @@ public class ReceiptDialog extends JDialog {
             line(sb, "Returned", booking.getActualReturnDate().format(DATE));
         }
         sb.append(rule);
+        if (booking.getPickUpCondition() != null || booking.getReturnCondition() != null) {
+            appendConditions(sb, booking.getPickUpCondition(), booking.getReturnCondition());
+            sb.append(rule);
+        }
 
         long days = booking.getNumberOfDays();
-        money(sb, "Rental (" + days + " day" + (days == 1 ? "" : "s") + ")", booking.getTotalCost());
+        money(sb, "Rental (" + days + " day" + (days == 1 ? "" : "s") + ")", booking.getRentalCostBeforeDiscount());
+        if (booking.getPromoCode() != null) {
+            money(sb, "Promo " + booking.getPromoCode(), booking.getPromoDiscount().negate());
+        }
+        if (booking.getLoyaltyPointsUsed() > 0) {
+            money(sb, "Loyalty points (" + booking.getLoyaltyPointsUsed() + ")", booking.getLoyaltyDiscount().negate());
+        }
         if (Money.isPositive(booking.getLateFee())) {
             money(sb, "Late fee", booking.getLateFee());
         }
@@ -172,8 +183,71 @@ public class ReceiptDialog extends JDialog {
         if (current != null) {
             sb.append("* this payment\n");
         }
+        if (booking.getLoyaltyPointsEarned() > 0) {
+            sb.append(String.format("Loyalty points earned: %,d%n", booking.getLoyaltyPointsEarned()));
+        } else if (booking.getLoyaltyPointsPending() > 0) {
+            sb.append(String.format("Loyalty points earned: %,d (being added)%n", booking.getLoyaltyPointsPending()));
+        }
         sb.append(rule).append(center("Thank you for renting with us!"));
         return sb.toString();
+    }
+
+    /**
+     * The pick-up and return checklists side by side; "*" marks what is worse at return:
+     * <pre>
+     * Condition         Pick-up     Return
+     * Scratches         No          Yes *
+     * Fuel              Full        1/2 *
+     * </pre>
+     */
+    static void appendConditions(StringBuilder sb, VehicleCondition pickUp, VehicleCondition atReturn) {
+        String format = "%-16s%-12s%s%n";
+        sb.append(String.format(format, "Condition", "Pick-up", "Return"));
+        boolean anyNew = false;
+        String[][] rows = {
+                {"Scratches", pickUp == null ? null : yesNo(pickUp.hasScratches()), atReturn == null ? null : yesNo(atReturn.hasScratches())},
+                {"Dents", pickUp == null ? null : yesNo(pickUp.hasDents()), atReturn == null ? null : yesNo(atReturn.hasDents())},
+                {"Fuel", pickUp == null ? null : pickUp.getFuel().getLabel(), atReturn == null ? null : atReturn.getFuel().getLabel()},
+                {"Cleanliness", pickUp == null ? null : cleanText(pickUp), atReturn == null ? null : cleanText(atReturn)},
+        };
+        boolean[] worse = new boolean[rows.length];
+        if (pickUp != null && atReturn != null) {
+            worse[0] = atReturn.hasScratches() && !pickUp.hasScratches();
+            worse[1] = atReturn.hasDents() && !pickUp.hasDents();
+            worse[2] = atReturn.getFuel().ordinal() < pickUp.getFuel().ordinal();
+            worse[3] = !atReturn.isClean() && pickUp.isClean();
+        }
+        for (int i = 0; i < rows.length; i++) {
+            anyNew |= worse[i];
+            sb.append(String.format(format, rows[i][0], rows[i][1] == null ? "-" : rows[i][1],
+                    (rows[i][2] == null ? "-" : rows[i][2]) + (worse[i] ? " *" : "")));
+        }
+        if (anyNew) sb.append("* new since pick-up\n");
+        if (pickUp != null && pickUp.getNotes() != null) wrapped(sb, "Pick-up note: " + pickUp.getNotes());
+        if (atReturn != null && atReturn.getNotes() != null) wrapped(sb, "Return note: " + atReturn.getNotes());
+    }
+
+    private static String yesNo(boolean b) {
+        return b ? "Yes" : "No";
+    }
+
+    private static String cleanText(VehicleCondition c) {
+        return c.isClean() ? "Clean" : "Not clean";
+    }
+
+    /** Writes text in lines of at most WIDTH characters, breaking between words. */
+    private static void wrapped(StringBuilder sb, String text) {
+        StringBuilder line = new StringBuilder();
+        for (String word : text.split(" ")) {
+            if (line.length() > 0 && line.length() + 1 + word.length() > WIDTH) {
+                sb.append(line).append('\n');
+                line.setLength(0);
+                line.append("  "); // continuation lines are indented
+            }
+            if (line.length() > 0 && !line.toString().isBlank()) line.append(' ');
+            line.append(word);
+        }
+        if (line.length() > 0) sb.append(line).append('\n');
     }
 
     private static String peso(BigDecimal amount) {

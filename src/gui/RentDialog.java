@@ -25,6 +25,8 @@ public class RentDialog extends JDialog {
     private JSpinner startDateSpinner;
     private JSpinner endDateSpinner;
     private JLabel totalCostLabel;
+    private PromoCodeField promoField;
+    private LoyaltyPointsOption pointsOption;
 
     public RentDialog(JFrame parent, Vehicle vehicle, BookingService bookingService, String customerId) {
         super(parent, "Rent Vehicle - " + vehicle.getBrand() + " " + vehicle.getModel(), true);
@@ -36,7 +38,7 @@ public class RentDialog extends JDialog {
 
     private void initializeUI() {
         UIConstants.styleDarkDialog(this, "Rent Vehicle");
-        setSize(UIConstants.DIALOG_WIDTH, 500);
+        setSize(UIConstants.DIALOG_WIDTH, 620);
         setLocationRelativeTo(getParent());
         setResizable(false);
         setLayout(new BorderLayout());
@@ -156,10 +158,29 @@ public class RentDialog extends JDialog {
         startDateSpinner.addChangeListener(dateListener);
         endDateSpinner.addChangeListener(dateListener);
 
+        // Promo code (optional)
+        JLabel promoLabel = UIConstants.createDarkBodyLabel("Promo Code:");
+        gbc.gridx = 0;
+        gbc.gridy = 5;
+        gbc.anchor = GridBagConstraints.WEST;
+        cardPanel.add(promoLabel, gbc);
+
+        promoField = new PromoCodeField(bookingService, this::updateTotalCost);
+        gbc.gridx = 1;
+        gbc.anchor = GridBagConstraints.CENTER;
+        cardPanel.add(promoField, gbc);
+
+        // Loyalty points (only offered when the customer has enough)
+        pointsOption = new LoyaltyPointsOption(this::updateTotalCost);
+        gbc.gridx = 1;
+        gbc.gridy = 6;
+        gbc.anchor = GridBagConstraints.WEST;
+        cardPanel.add(pointsOption, gbc);
+
         // Total Cost
         JLabel costTitleLabel = UIConstants.createDarkBodyLabel("Total Cost:");
         gbc.gridx = 0;
-        gbc.gridy = 5;
+        gbc.gridy = 7;
         gbc.anchor = GridBagConstraints.WEST;
         cardPanel.add(costTitleLabel, gbc);
 
@@ -175,7 +196,7 @@ public class RentDialog extends JDialog {
         // Note
         JLabel noteLabel = UIConstants.createDarkMutedLabel("Priced per day between the dates (minimum 1 day).");
         gbc.gridx = 0;
-        gbc.gridy = 6;
+        gbc.gridy = 8;
         gbc.gridwidth = 2;
         gbc.anchor = GridBagConstraints.CENTER;
         gbc.insets = new Insets(UIConstants.SPACING_MD, UIConstants.SPACING_MD, 0, UIConstants.SPACING_MD);
@@ -231,7 +252,14 @@ public class RentDialog extends JDialog {
             return;
         }
         java.math.BigDecimal total = vehicle.calculateRentalCost((int) days);
-        totalCostLabel.setText(String.format("\u20B1%,.2f", total));
+        java.math.BigDecimal discount = promoField == null ? model.Money.ZERO : promoField.discountOn(total);
+        if (pointsOption != null) {
+            pointsOption.update(bookingService.getLoyaltyPoints(customerId), total.subtract(discount));
+            discount = discount.add(java.math.BigDecimal.valueOf(pointsOption.getPointsToUse()));
+        }
+        totalCostLabel.setText(String.format("\u20B1%,.2f", total.subtract(discount)));
+        totalCostLabel.setToolTipText(discount.signum() > 0
+                ? String.format("\u20B1%,.2f before discounts of \u20B1%,.2f", total, discount) : null);
         totalCostLabel.setForeground(UIConstants.SUCCESS);
     }
 
@@ -252,8 +280,14 @@ public class RentDialog extends JDialog {
             return;
         }
 
+        if (promoField.hasUncheckedCode()) {
+            showError("Press Apply to check the promo code first, or clear it to book without one.");
+            return;
+        }
+
         try {
-            bookingService.createBooking(customerId, vehicle.getVehicleId(), start, end);
+            bookingService.createBooking(customerId, vehicle.getVehicleId(), start, end, promoField.getCode(),
+                    pointsOption.getPointsToUse());
             booked = true;
             JOptionPane.showMessageDialog(this, "Booking confirmed successfully!", "Success", JOptionPane.INFORMATION_MESSAGE);
             dispose();

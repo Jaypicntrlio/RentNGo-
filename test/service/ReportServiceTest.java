@@ -47,7 +47,7 @@ class ReportServiceTest {
         assertEquals(0, reports.getRevenueForMonth(YearMonth.now()).signum());
         assertEquals(0, reports.getActiveRentalCount());
         assertTrue(reports.getMostRentedVehicle().isEmpty());
-        assertEquals(Map.of("Car", 0L, "SUV", 0L, "Truck", 0L), reports.getBookingsByVehicleType());
+        assertEquals(Map.of("Car", 0L, "SUV", 0L, "Truck", 0L, "Van", 0L, "EV", 0L), reports.getBookingsByVehicleType());
     }
 
     @Test
@@ -75,7 +75,7 @@ class ReportServiceTest {
         assertEquals("VEH001", top.getVehicleId());
         assertEquals("Toyota Camry", top.getName());
         assertEquals(2, top.getRentals());
-        assertEquals(Map.of("Car", 2L, "SUV", 1L, "Truck", 0L), reports.getBookingsByVehicleType());
+        assertEquals(Map.of("Car", 2L, "SUV", 1L, "Truck", 0L, "Van", 0L, "EV", 0L), reports.getBookingsByVehicleType());
     }
 
     @Test

@@ -27,6 +27,10 @@ public class RentDialog extends JDialog {
     private JLabel totalCostLabel;
     private PromoCodeField promoField;
     private LoyaltyPointsOption pointsOption;
+    /** Booked and free days of this vehicle; picking days fills in the date fields. */
+    private AvailabilityCalendar calendar;
+    /** True while the calendar is filling in the dates, so the fields don't send them back. */
+    private boolean syncingDates;
 
     public RentDialog(JFrame parent, Vehicle vehicle, BookingService bookingService, String customerId) {
         super(parent, "Rent Vehicle - " + vehicle.getBrand() + " " + vehicle.getModel(), true);
@@ -38,7 +42,7 @@ public class RentDialog extends JDialog {
 
     private void initializeUI() {
         UIConstants.styleDarkDialog(this, "Rent Vehicle");
-        setSize(UIConstants.DIALOG_WIDTH, 620);
+        setSize(UIConstants.DIALOG_WIDTH + 400, 640);
         setLocationRelativeTo(getParent());
         setResizable(false);
         setLayout(new BorderLayout());
@@ -205,6 +209,7 @@ public class RentDialog extends JDialog {
         gbc.gridwidth = 1;
 
         backgroundPanel.add(cardPanel, BorderLayout.CENTER);
+        backgroundPanel.add(createCalendarCard(), BorderLayout.EAST);
 
         // Button panel
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, UIConstants.SPACING_MD, UIConstants.SPACING_MD));
@@ -228,7 +233,41 @@ public class RentDialog extends JDialog {
         getRootPane().setDefaultButton(bookButton);
     }
 
+    /** The availability calendar beside the form, kept in step with the date fields both ways. */
+    private JPanel createCalendarCard() {
+        JPanel card = new JPanel(new BorderLayout(0, UIConstants.SPACING_SM));
+        card.setBackground(UIConstants.DARK_CARD);
+        card.setBorder(new CompoundBorder(
+                new CompoundBorder(new EmptyBorder(0, UIConstants.SPACING_MD, 0, 0), new LineBorder(UIConstants.DARK_BORDER, 1)),
+                new EmptyBorder(UIConstants.SPACING_LG, UIConstants.SPACING_LG, UIConstants.SPACING_LG, UIConstants.SPACING_LG)));
+        card.setPreferredSize(new Dimension(390, 0));
+        card.add(UIConstants.createDarkSubheadingLabel("Availability"), BorderLayout.NORTH);
+
+        calendar = new AvailabilityCalendar(bookingService, vehicle.getVehicleId());
+        calendar.setOnSelect((start, end) -> {
+            syncingDates = true;
+            startDateSpinner.setValue(java.sql.Date.valueOf(start));
+            endDateSpinner.setValue(java.sql.Date.valueOf(end));
+            syncingDates = false;
+            updateTotalCost();
+        });
+        calendar.setSelection(selectedStart(), selectedEnd());
+        card.add(calendar, BorderLayout.CENTER);
+        return card;
+    }
+
+    private LocalDate selectedStart() {
+        return ((java.util.Date) startDateSpinner.getValue()).toInstant().atZone(java.time.ZoneId.systemDefault()).toLocalDate();
+    }
+
+    private LocalDate selectedEnd() {
+        return ((java.util.Date) endDateSpinner.getValue()).toInstant().atZone(java.time.ZoneId.systemDefault()).toLocalDate();
+    }
+
     private void updateTotalCost(ChangeEvent e) {
+        if (!syncingDates && calendar != null) {
+            calendar.setSelection(selectedStart(), selectedEnd()); // typed dates show on the calendar too
+        }
         updateTotalCost();
     }
 
@@ -292,6 +331,7 @@ public class RentDialog extends JDialog {
             JOptionPane.showMessageDialog(this, "Booking confirmed successfully!", "Success", JOptionPane.INFORMATION_MESSAGE);
             dispose();
         } catch (BookingException | VehicleNotFoundException ex) {
+            calendar.reload(); // someone else may have just booked these days
             showError(ex.getMessage());
         }
     }

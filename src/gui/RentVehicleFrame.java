@@ -229,6 +229,13 @@ public class RentVehicleFrame extends JFrame {
         confirmButton.addActionListener(e -> confirmRental());
         panel.add(confirmButton);
 
+        // booked and free days of the selected vehicle; picking days fills in the dates
+        JButton calendarButton = UIConstants.createPrimaryButton("Calendar...");
+        calendarButton.setPreferredSize(new Dimension(160, UIConstants.BUTTON_HEIGHT_LG));
+        calendarButton.setToolTipText("See which days the selected vehicle is free, and pick the dates there");
+        calendarButton.addActionListener(e -> openCalendar());
+        panel.add(calendarButton);
+
         JButton clearButton = UIConstants.createSecondaryButton("Clear");
         clearButton.setPreferredSize(new Dimension(140, UIConstants.BUTTON_HEIGHT_LG));
         clearButton.addActionListener(e -> {
@@ -239,6 +246,21 @@ public class RentVehicleFrame extends JFrame {
         panel.add(clearButton);
 
         return panel;
+    }
+
+    private void openCalendar() {
+        Vehicle vehicle = selectedVehicle();
+        if (vehicle == null) {
+            showError("Please choose a vehicle first");
+            return;
+        }
+        LocalDate[] dates = AvailabilityCalendarDialog.pickDates(this, bookingService, vehicle,
+                asLocalDate(startDateSpinner), asLocalDate(endDateSpinner));
+        if (dates != null) {
+            startDateSpinner.setValue(java.sql.Date.valueOf(dates[0]));
+            endDateSpinner.setValue(java.sql.Date.valueOf(dates[1]));
+            updateTotal();
+        }
     }
 
     private JSpinner dateSpinner(LocalDate initial) {
